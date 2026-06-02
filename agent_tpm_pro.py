@@ -48,7 +48,7 @@ except ImportError:
 
 # --- GLOBAL SETTINGS ---
 PROJECTS_ROOT = "projects"
-LOCAL_MODEL = "llama3.2:3b"
+LOCAL_MODEL = "qwen2.5:7b"
 WIP_LIMIT = 8
 console = Console()
 
