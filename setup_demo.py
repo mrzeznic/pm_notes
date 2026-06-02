@@ -4,7 +4,13 @@ from pathlib import Path
 def create_demo():
     # Definicja struktury projektów i zawartości notatek
     demo_data = {
-        "Project_Alpha_ETL": """# Pipeline Optymalizacji ETL
+        "Project_Alpha_ETL": """# Project Info
+- **Owner:** John Doe (Data Eng Lead)
+- **Stakeholders:** Finance Team, Marketing Ops
+- **Goal:** Optimize Spark ETL pipelines to reduce AWS EMR costs by 30%.
+- **Tech Stack:** PySpark, AWS S3, EMR, Terraform.
+
+# Pipeline Optymalizacji ETL
 - [x] Konfiguracja środowiska dev
 - [ ] Implementacja logiki transformacji w Sparku
 - [ ] Testy jednostkowe dla modułu walidacji danych
@@ -12,7 +18,13 @@ def create_demo():
 - [ ] Optymalizacja zużycia zasobów na klastrze EMR
 - [ ] Przygotowanie dokumentacji dla operacji""",
 
-        "Project_Beta_Migration": """# Migracja do Cloud 2.0
+        "Project_Beta_Migration": """# Project Info
+- **Owner:** Sarah Smith (Cloud Architect)
+- **Stakeholders:** IT Infrastructure, Security
+- **Goal:** Move all on-premise Kafka and database workloads to AWS.
+- **Critical Info:** Zero downtime migration required for the payment gateway.
+
+# Migracja do Cloud 2.0
 - [ ] Migracja schematów bazodanowych
 - [ ] #blocked Zespół Sieciowy nie otworzył portów dla VPN
 - [ ] Weryfikacja spójności danych po migracji
@@ -24,16 +36,23 @@ def create_demo():
 - [ ] Przygotowanie planu rollbacku
 - [ ] Dokumentacja procedury CI/CD""",
 
-        "Project_Gamma_Governance": """# Wdrożenie Data Governance
+        "Project_Gamma_Governance": """# Project Info
+- **Owner:** Mike Ross (Data Steward)
+- **Stakeholders:** Legal, Compliance
+- **Goal:** Implement automated PII tagging and data retention policies.
+
+# Wdrożenie Data Governance
 - [x] Inwentaryzacja źródeł danych
 - [ ] Implementacja tagowania PII w katalogu danych
 - [ ] Ustalenie właścicieli biznesowych dla tabel sprzedażowych
 - [ ] Definicja polityki retencji danych""",
 
-        "_Archive_2025": """# Stary projekt
-- [x] Zrobione i zapomniane.""",
-        
-        "Project_Delta_Reporting": """# Nowy Dashboard Finansowy
+        "Project_Delta_Reporting": """# Project Info
+- **Owner:** Anna Lee (BI Developer)
+- **Stakeholders:** Executive Board, CFO
+- **Goal:** Create a real-time financial dashboard for Q2 reporting.
+
+# Nowy Dashboard Finansowy
 - [ ] Zbieranie wymagań od stakeholderów
 - [ ] Definicja kluczowych KPI
 - [ ] #blocked Dane finansowe za Q1 nie są jeszcze gotowe w hurtowni (czekamy na zespół FinData)"""
@@ -52,7 +71,7 @@ def create_demo():
         note_file.write_text(content, encoding='utf-8')
         print(f"✅ Utworzono projekt: {proj_name}")
 
-    print("\n🚀 Demo gotowe! Możesz teraz uruchomić: python agent_tpm_pro.py")
+    print("\n🚀 Demo gotowe! Możesz teraz uruchomić: python agent_tpm_gui.py")
 
 if __name__ == "__main__":
     create_demo()
