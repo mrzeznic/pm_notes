@@ -11,8 +11,8 @@
 > n (2026-04-18 00:17)
 
 ## PROJECT SUMMARY
-- 🎯 **MISSION:** Migrate the application to Cloud 2.0 while ensuring data 
-consistency and security.
+- 🎯 **MISSION:** Migrate the infrastructure to Cloud 2.0, including databa
+database schemas, Kafka performance testing, and data encryption setup.
 -
 ## ARCHIVE
 - [ ] Przygotowanie planu rollbacku (2026-05-15)

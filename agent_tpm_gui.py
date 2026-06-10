@@ -8,14 +8,34 @@ import asyncio
 import json
 import hashlib
 from pathlib import Path
-from nicegui import ui, app, run
+from nicegui import ui, app, run, core
+
+# --- BASE PATHING ---
+BASE_DIR = Path(__file__).resolve().parent
+os.chdir(BASE_DIR) # Force CWD to script directory for portability
 
 # --- CONFIGURATION PERSISTENCE ---
-CONFIG_FILE = "tpm_config.json"
+CONFIG_FILE = BASE_DIR / "tpm_config.json"
+
+def validate_config(config):
+    """Ensures configuration values are safe and sane."""
+    # Prevent obvious path traversal or sensitive root changes
+    root = str(config.get("PROJECTS_ROOT", "projects"))
+    if any(p in root for p in ["/etc", "/var", "/root", ".ssh", ".gnupg"]):
+        config["PROJECTS_ROOT"] = "projects"
+        print("Security Warning: Blocked restricted Projects Root path.", file=sys.stderr)
+    
+    # Sanitize model names to prevent command injection characters
+    for key in ["LOCAL_MODEL", "GLOBAL_MODEL_CMD"]:
+        val = str(config.get(key, ""))
+        if any(char in val for char in [";", "&", "|", ">", "<", "$", "`"]):
+            config[key] = "qwen2.5:7b" if "LOCAL" in key else "gh copilot chat -p"
+            print(f"Security Warning: Sanitized suspicious characters in {key}.", file=sys.stderr)
+    return config
 
 def load_config():
     default = {
-        "PROJECTS_ROOT": "projects",
+        "PROJECTS_ROOT": str(BASE_DIR / "projects"),
         "GLOBAL_MODEL_CMD": "gh copilot chat -p",
         "LOCAL_MODEL": "qwen2.5:7b",
         "WIP_LIMIT": 8,
@@ -30,19 +50,20 @@ def load_config():
             "Risks": "local"
         }
     }
-    if os.path.exists(CONFIG_FILE):
+    if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r") as f:
                 loaded = json.load(f)
                 if "MODEL_PREFS" in loaded:
                     default["MODEL_PREFS"].update(loaded["MODEL_PREFS"])
                     del loaded["MODEL_PREFS"]
-                return {**default, **loaded}
+                return validate_config({**default, **loaded})
         except Exception:
             return default
     return default
 
 def save_config(config):
+    config = validate_config(config)
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
 
@@ -60,9 +81,12 @@ class AILogger:
         icon = icons.get(type, "•")
         cls.logs.append(f"[{ts}] {icon} {message}")
         if len(cls.logs) > 50: cls.logs.pop(0)
-        # Trigger UI update via app-level event if possible, or just rely on refresh
-        if hasattr(app, 'tpm_instance'):
-            app.tpm_instance.render_logs.refresh()
+        # Trigger UI update only if app is ready and event loop is running
+        if hasattr(app, 'tpm_instance') and core.loop:
+            try:
+                app.tpm_instance.render_logs.refresh()
+            except Exception:
+                pass
 
 def clean_ansi(text):
     """Removes ANSI escape codes and other terminal artifacts."""
@@ -134,7 +158,6 @@ class AIEngine:
 # --- TPM MISSION CONTROL ---
 class WebTPM:
     def __init__(self):
-        app.tpm_instance = self # Register instance for logger
         self.active_idx = 0
         self.projects = []
         self.archived_projects = []
@@ -158,10 +181,16 @@ class WebTPM:
 
         self.refresh_projects()
         self.setup_ui()
+        app.tpm_instance = self # Register instance for logger once ready
         AILogger.log("TPM Command Center Initialized", "success")
         
+        # Safe async trigger using NiceGUI's app.on_startup
+        app.on_startup(self.startup_sequence)
+
+    async def startup_sequence(self):
+        """Initial background tasks once the app is ready."""
         if self.projects and self.projects[0]['name'] != "Empty_Portfolio":
-            ui.timer(0.1, self.update_project_summary, once=True)
+            await self.update_project_summary()
 
     def refresh_projects(self):
         AILogger.log("Refreshing portfolio data...")
@@ -730,4 +759,26 @@ class WebTPM:
                 self.cmd_input = ui.input(placeholder='Ask AI...').on('keydown.enter', self.submit_prompt).classes('flex-grow text-sm').props('outlined dark dense rounded'); ui.button(icon='send', on_click=self.submit_prompt).props('elevated color=blue')
 
 if __name__ in {"__main__", "__mp_main__"}:
-    WebTPM(); ui.query('.q-page').classes('h-screen flex flex-col'); ui.query('.q-page-container').classes('h-screen overflow-hidden'); ui.run(title="TPM GUI", port=8080, dark=True, reload=False)
+    try:
+        # Initialize UI structure
+        WebTPM()
+        
+        # Configure page layout
+        ui.query('.q-page').classes('h-screen flex flex-col')
+        ui.query('.q-page-container').classes('h-screen overflow-hidden')
+        
+        print("🚀 TPM Command Center starting on http://127.0.0.1:8080")
+        
+        # Start NiceGUI
+        ui.run(
+            title="TPM GUI", 
+            port=8080, 
+            host='127.0.0.1', 
+            dark=True, 
+            reload=False, 
+            show=True
+        )
+    except Exception as e:
+        import traceback
+        print("CRITICAL ERROR DURING STARTUP:", file=sys.stderr)
+        traceback.print_exc()
