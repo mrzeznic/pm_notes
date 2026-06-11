@@ -237,13 +237,23 @@ class WebTPM:
         if not p['path'] or not p['path'].exists(): return []
         content = p['path'].read_text(encoding='utf-8', errors='ignore')
         
-        # Strip summary and archive from active task parsing
+        # Split sections strictly
         active_part = content
         archive_part = ""
+        tasks_part = ""
+        
         if "## ARCHIVE" in active_part:
             active_part, archive_part = active_part.split("## ARCHIVE", 1)
-        if "## PROJECT SUMMARY" in active_part:
-            active_part = active_part.split("## PROJECT SUMMARY")[0]
+        
+        # Use regex to find ## Tasks section precisely
+        tasks_section_match = re.search(r'## Tasks\n(.*?)(?=\n##|$)', active_part, re.DOTALL)
+        if tasks_section_match:
+            tasks_part = tasks_section_match.group(1)
+        else:
+            # Fallback: Strip summary if exists, then use rest as tasks
+            tasks_part = active_part
+            if "## PROJECT SUMMARY" in tasks_part:
+                tasks_part = tasks_part.split("## PROJECT SUMMARY")[0]
 
         def extract_tasks(text, archived=False):
             tasks = []
@@ -257,7 +267,6 @@ class WebTPM:
                     br_match = re.search(r'#blocked:\s*([^#@\n]+)', raw_text)
                     dep_match = re.search(r'#dep:\s*([^#@\n]+)', raw_text)
                     due_match = re.search(r'@(\d{4}-\d{2}-\d{2})', raw_text)
-                    # Extract description from parentheses at the end
                     desc_match = re.search(r'\(([^)]+)\)\s*$', raw_text)
                     
                     prio = int(prio_match.group(1)) if prio_match else 4
@@ -285,7 +294,7 @@ class WebTPM:
                     })
             return tasks
 
-        tasks = extract_tasks(active_part)
+        tasks = extract_tasks(tasks_part)
         if self.show_archived_t:
             tasks += extract_tasks(archive_part, archived=True)
             
@@ -481,8 +490,23 @@ class WebTPM:
         p = all_p[self.active_idx]
         if t and p['path']:
             AILogger.log(f"Adding new task to {p['name']}: {t[:30]}...", "info")
-            line = f"\n- [ ] {t}"
-            with open(p['path'], "a", encoding="utf-8") as f: f.write(line)
+            content = p['path'].read_text(encoding='utf-8')
+            
+            task_line = f"- [ ] {t}"
+            
+            if "## Tasks" in content:
+                # Append to the end of ## Tasks section
+                new_content = re.sub(r'(## Tasks\n.*?)(?=\n##|$)', r'\1\n' + task_line, content, flags=re.DOTALL)
+            else:
+                # Create section before ARCHIVE or SUMMARY or at end
+                if "## PROJECT SUMMARY" in content:
+                    new_content = content.replace("## PROJECT SUMMARY", f"## Tasks\n{task_line}\n\n## PROJECT SUMMARY")
+                elif "## ARCHIVE" in content:
+                    new_content = content.replace("## ARCHIVE", f"## Tasks\n{task_line}\n\n## ARCHIVE")
+                else:
+                    new_content = content.strip() + f"\n\n## Tasks\n{task_line}"
+            
+            p['path'].write_text(new_content, encoding='utf-8')
             self.new_task_input.value = ""
             self.refresh_projects(); self.render_sidebar.refresh(); self.render_tasks.refresh()
 

@@ -10,7 +10,7 @@ def create_demo():
 - **Goal:** Optimize Spark ETL pipelines to reduce AWS EMR costs by 30%.
 - **Tech Stack:** PySpark, AWS S3, EMR, Terraform.
 
-# Pipeline Optymalizacji ETL
+## Tasks
 - [x] Konfiguracja środowiska dev
 - [ ] Implementacja logiki transformacji w Sparku
 - [ ] Testy jednostkowe dla modułu walidacji danych
@@ -24,7 +24,7 @@ def create_demo():
 - **Goal:** Move all on-premise Kafka and database workloads to AWS.
 - **Critical Info:** Zero downtime migration required for the payment gateway.
 
-# Migracja do Cloud 2.0
+## Tasks
 - [ ] Migracja schematów bazodanowych
 - [ ] #blocked Zespół Sieciowy nie otworzył portów dla VPN
 - [ ] Weryfikacja spójności danych po migracji
@@ -41,7 +41,7 @@ def create_demo():
 - **Stakeholders:** Legal, Compliance
 - **Goal:** Implement automated PII tagging and data retention policies.
 
-# Wdrożenie Data Governance
+## Tasks
 - [x] Inwentaryzacja źródeł danych
 - [ ] Implementacja tagowania PII w katalogu danych
 - [ ] Ustalenie właścicieli biznesowych dla tabel sprzedażowych
@@ -52,7 +52,7 @@ def create_demo():
 - **Stakeholders:** Executive Board, CFO
 - **Goal:** Create a real-time financial dashboard for Q2 reporting.
 
-# Nowy Dashboard Finansowy
+## Tasks
 - [ ] Zbieranie wymagań od stakeholderów
 - [ ] Definicja kluczowych KPI
 - [ ] #blocked Dane finansowe za Q1 nie są jeszcze gotowe w hurtowni (czekamy na zespół FinData)"""
