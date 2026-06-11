@@ -1,0 +1,16 @@
+{
+    "PROJECTS_ROOT": "projects",
+    "GLOBAL_MODEL_CMD": "gh copilot chat -p",
+    "LOCAL_MODEL": "qwen2.5:7b",
+    "WIP_LIMIT": 8,
+    "MODEL_PREFS": {
+        "Summary": "local",
+        "Chat": "local",
+        "Daily Roadmap": "local",
+        "Refactor Notes": "local",
+        "Executive": "cloud",
+        "Tech Plan": "cloud",
+        "Health": "local",
+        "Risks": "local"
+    }
+}

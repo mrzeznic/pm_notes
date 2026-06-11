@@ -17,6 +17,7 @@ DEFAULT_PROJECTS_DIR = BASE_DIR / "projects"
 
 # --- CONFIGURATION PERSISTENCE ---
 CONFIG_FILE = BASE_DIR / "tpm_config.json"
+DEFAULTS_FILE = BASE_DIR / "tpm_defaults.json"
 
 def validate_config(config):
     """Ensures configuration values are safe and sane."""
@@ -35,33 +36,32 @@ def validate_config(config):
     return config
 
 def load_config():
-    default = {
-        "PROJECTS_ROOT": str(DEFAULT_PROJECTS_DIR),
-        "GLOBAL_MODEL_CMD": "gh copilot chat -p",
-        "LOCAL_MODEL": "qwen2.5:7b",
-        "WIP_LIMIT": 8,
-        "MODEL_PREFS": {
-            "Summary": "local",
-            "Chat": "local",
-            "Daily Roadmap": "local",
-            "Refactor Notes": "local",
-            "Executive": "cloud",
-            "Tech Plan": "cloud",
-            "Health": "local",
-            "Risks": "local"
-        }
-    }
+    # Load external defaults first
+    if DEFAULTS_FILE.exists():
+        try:
+            with open(DEFAULTS_FILE, "r") as f:
+                default = json.load(f)
+                # Ensure relative paths in defaults are converted to absolute
+                if default.get("PROJECTS_ROOT") == "projects":
+                    default["PROJECTS_ROOT"] = str(DEFAULT_PROJECTS_DIR)
+        except Exception as e:
+            print(f"Error loading defaults: {e}", file=sys.stderr)
+            default = {"PROJECTS_ROOT": str(DEFAULT_PROJECTS_DIR)}
+    else:
+        # Emergency fallback if defaults file is missing
+        default = {"PROJECTS_ROOT": str(DEFAULT_PROJECTS_DIR)}
+
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r") as f:
                 loaded = json.load(f)
-                if "MODEL_PREFS" in loaded:
+                if "MODEL_PREFS" in loaded and "MODEL_PREFS" in default:
                     default["MODEL_PREFS"].update(loaded["MODEL_PREFS"])
                     del loaded["MODEL_PREFS"]
                 return validate_config({**default, **loaded})
         except Exception:
-            return default
-    return default
+            return validate_config(default)
+    return validate_config(default)
 
 def save_config(config):
     config = validate_config(config)
@@ -118,16 +118,16 @@ class AIEngine:
                                 capture_output=True, text=True, encoding='utf-8', timeout=300)
             duration = time.time() - start_time
             if res.returncode != 0: 
-                AILogger.log(f"Ollama failed after {duration:.1f}s", "error")
-                return f"⚠️ Ollama Error ({res.returncode}): {res.stderr.strip()}"
+                AILogger.log(f"Ollama failed ({res.returncode}): {res.stderr.strip()}", "error")
+                return f"⚠️ Local Model Error (Check Logs)"
             AILogger.log(f"Ollama responded in {duration:.1f}s", "success")
             return clean_ansi(res.stdout.strip())
         except subprocess.TimeoutExpired:
             AILogger.log(f"Ollama request timed out ({model})", "error")
-            return "⚠️ AI Timeout: The model took too long to respond. Try a shorter prompt."
+            return "⚠️ AI Timeout: Process took too long"
         except Exception as e: 
             AILogger.log(f"AI Engine Error: {str(e)}", "error")
-            return f"⚠️ AI Engine Exception: {str(e)}"
+            return f"⚠️ AI Engine Error"
 
     @staticmethod
     def run_copilot(prompt):
@@ -139,22 +139,22 @@ class AIEngine:
                 subprocess.run(['gh', '--version'], capture_output=True, check=True)
             except (subprocess.CalledProcessError, FileNotFoundError):
                 AILogger.log("GitHub CLI (gh) is not installed or not in PATH", "error")
-                return "⚠️ Cloud AI Unavailable: GitHub CLI ('gh') is required but was not found. Please install it or use Local mode."
+                return "⚠️ Cloud AI Unavailable (Check Logs)"
             
             cmd_parts = CONFIG["GLOBAL_MODEL_CMD"].split() + [prompt]
             res = subprocess.run(cmd_parts, capture_output=True, text=True, encoding='utf-8', timeout=300)
             duration = time.time() - start_time
             if res.returncode != 0: 
-                AILogger.log(f"Cloud AI failed after {duration:.1f}s", "error")
-                return f"⚠️ Copilot Error ({res.returncode}): {res.stderr.strip()}"
+                AILogger.log(f"Cloud AI failed ({res.returncode}): {res.stderr.strip()}", "error")
+                return f"⚠️ Cloud Model Error (Check Logs)"
             AILogger.log(f"Cloud AI responded in {duration:.1f}s", "success")
             return clean_ansi(res.stdout.strip())
         except subprocess.TimeoutExpired:
             AILogger.log("Cloud AI request timed out (300s limit)", "error")
-            return "⚠️ Copilot Timeout: The request timed out."
+            return "⚠️ AI Timeout: Cloud request expired"
         except Exception as e:
             AILogger.log(f"Cloud AI Exception: {str(e)}", "error")
-            return f"⚠️ Copilot Exception: {str(e)}"
+            return f"⚠️ Cloud AI Error"
 
 # --- TPM MISSION CONTROL ---
 class WebTPM:
@@ -427,17 +427,27 @@ class WebTPM:
         if "## ARCHIVE" in clean_notes:
             clean_notes = clean_notes.split("## ARCHIVE")[0]
             
+        # Use regex to find ## Tasks section precisely for progress tracking
+        tasks_part = ""
+        tasks_section_match = re.search(r'## Tasks\n(.*?)(?=\n##|$)', clean_notes, re.DOTALL)
+        if tasks_section_match:
+            tasks_part = tasks_section_match.group(1).strip()
+        else:
+            tasks_part = clean_notes # Fallback
+            
         prompt = (f"Act as a TPM. Provide a punchy 'at-a-glance' overview of this project.\n\n"
-                  f"--- PROJECT BACKGROUND ---\n{project_info}\n\n"
-                  f"--- CURRENT NOTES ---\n{clean_notes}\n\n"
-                  f"INSTRUCTIONS: Use the info above to fill the template below. "
-                  f"If Project Background is empty, infer the mission and owner from the notes. "
-                  f"If information is missing, use 'Not specified'.\n\n"
+                  f"--- PROJECT BACKGROUND (Use for Mission/Owner) ---\n{project_info}\n\n"
+                  f"--- CURRENT TASKS (Use for Progress/Status) ---\n{tasks_part}\n\n"
+                  f"INSTRUCTIONS:\n"
+                  f"- MISSION: State the core purpose based on Background.\n"
+                  f"- OWNER: Identify stakeholders/owner from Background.\n"
+                  f"- PROGRESS: Summarize what was recently done vs what is next based on Tasks.\n"
+                  f"- STATUS: Identify critical blockers or current project health.\n\n"
                   f"REQUIRED FORMAT (Return ONLY these 4 bullet points, no other text):\n"
-                  f"- 🎯 **MISSION:** [Core purpose in one sentence]\n"
+                  f"- 🎯 **MISSION:** [One concise sentence]\n"
                   f"- 👥 **OWNER:** [Owner/Stakeholders]\n"
-                  f"- 🚀 **FOCUS:** [Primary current focus]\n"
-                  f"- ⚠️ **STATUS:** [Blockers or health status]\n")
+                  f"- 📈 **PROGRESS:** [Short summary of current work/velocity]\n"
+                  f"- ⚠️ **STATUS:** [Blockers or 'On Track']\n")
         mode = self.model_prefs.get("Summary", "local")
         engine_func = AIEngine.run_local if mode == "local" else AIEngine.run_copilot
         
@@ -762,22 +772,22 @@ class WebTPM:
         ui.add_head_html('<style>body { background-color: #0d1117; font-family: Inter, sans-serif; overflow: hidden; }.sidebar-active { background-color: #1f6feb !important; }.task-card:hover { border-color: #58a6ff !important; }.text-standard { font-size: 14px !important; }.text-header-section { font-size: 10px !important; font-weight: 700; letter-spacing: 0.1em; }::-webkit-scrollbar { width: 8px; height: 0px; }::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }.full-height-tasks { height: calc(100vh - 160px) !important; }</style>')
         with ui.header().classes('p-3 bg-[#161b22] border-b border-[#30363d] no-wrap items-center'):
             # LEFT: Title and Menu
-            with ui.row().classes('items-center gap-4 shrink-0 w-1/4'):
+            with ui.row().classes('items-center gap-4 shrink-0'):
                 ui.button(icon='menu', on_click=lambda: self.drawer.toggle()).props('flat color=white')
                 ui.label('TPM COMMAND CENTER').classes('text-lg font-bold text-white')
             
-            # CENTER: Tools
-            with ui.row().classes('items-center justify-center gap-1 grow'):
+            # CENTER: Tools (Now with text-lg to match title)
+            with ui.row().classes('items-center justify-center gap-4 grow'):
                 for tool, prmt in [('EXECUTIVE', 'ROI:\n{notes}'), ('TECH PLAN', 'Plan:\n{notes}'), ('HEALTH', 'Health:\n{notes}'), ('RISKS', 'Risks:\n{notes}')]:
-                    ui.button(tool, on_click=lambda t=tool, p=prmt: self.run_ai_tool(t.title(), p, input_req=(t == 'TECH PLAN'))).props('flat color=blue dense size=sm').classes('px-1')
-                ui.button('CHAT', on_click=self.open_chat_dialog).props('flat color=blue dense size=sm').classes('px-1')
-                ui.button('DAILY', on_click=lambda: self.run_ai_tool('Daily Roadmap', 'Act as a TPM. Review all project notes below. Group activities by project, highlight #urgent items and blockers. Provide a concise daily roadmap:\n\n{all_notes}')).props('flat color=blue dense size=sm').classes('px-1')
-                ui.button('REFACTOR', on_click=lambda: self.run_ai_tool('Refactor Notes', 'Refactor these project notes for {project}. Maintain all task statuses, tags, and metadata. Improve clarity, group tasks logically, and clean up formatting:\n\n{notes}')).props('flat color=purple dense size=sm').classes('px-1')
-                ui.button(icon='settings', on_click=self.open_config_dialog).props('flat color=gray dense size=sm').classes('px-1')
+                    ui.button(tool, on_click=lambda t=tool, p=prmt: self.run_ai_tool(t.title(), p, input_req=(t == 'TECH PLAN'))).props('flat color=blue').classes('text-lg font-bold px-2')
+                ui.button('CHAT', on_click=self.open_chat_dialog).props('flat color=blue').classes('text-lg font-bold px-2')
+                ui.button('DAILY', on_click=lambda: self.run_ai_tool('Daily Roadmap', 'Act as a TPM. Review all project notes below. Group activities by project, highlight #urgent items and blockers. Provide a concise daily roadmap:\n\n{all_notes}')).props('flat color=blue').classes('text-lg font-bold px-2')
+                ui.button('REFACTOR', on_click=lambda: self.run_ai_tool('Refactor Notes', 'Refactor these project notes for {project}. Maintain all task statuses, tags, and metadata. Improve clarity, group tasks logically, and clean up formatting:\n\n{notes}')).props('flat color=purple').classes('text-lg font-bold px-2')
+                ui.button(icon='settings', on_click=self.open_config_dialog).props('flat color=gray').classes('px-2')
             
             # RIGHT: Status & Logs
-            with ui.row().classes('items-center justify-end gap-3 shrink-0 w-1/3'):
-                with ui.column().classes('items-end gap-0 w-full'):
+            with ui.row().classes('items-center justify-end gap-3 shrink-0'):
+                with ui.column().classes('items-end gap-0 w-80'):
                     self.render_header_status()
                     self.render_logs()
         self.drawer = ui.left_drawer(value=True).props('width=500').classes('bg-[#161b22] p-0 flex flex-col')
