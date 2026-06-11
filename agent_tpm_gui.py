@@ -13,6 +13,7 @@ from nicegui import ui, app, run, core
 # --- BASE PATHING ---
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR) # Force CWD to script directory for portability
+DEFAULT_PROJECTS_DIR = BASE_DIR / "projects"
 
 # --- CONFIGURATION PERSISTENCE ---
 CONFIG_FILE = BASE_DIR / "tpm_config.json"
@@ -20,9 +21,9 @@ CONFIG_FILE = BASE_DIR / "tpm_config.json"
 def validate_config(config):
     """Ensures configuration values are safe and sane."""
     # Prevent obvious path traversal or sensitive root changes
-    root = str(config.get("PROJECTS_ROOT", "projects"))
+    root = str(config.get("PROJECTS_ROOT", DEFAULT_PROJECTS_DIR))
     if any(p in root for p in ["/etc", "/var", "/root", ".ssh", ".gnupg"]):
-        config["PROJECTS_ROOT"] = "projects"
+        config["PROJECTS_ROOT"] = str(DEFAULT_PROJECTS_DIR)
         print("Security Warning: Blocked restricted Projects Root path.", file=sys.stderr)
     
     # Sanitize model names to prevent command injection characters
@@ -35,7 +36,7 @@ def validate_config(config):
 
 def load_config():
     default = {
-        "PROJECTS_ROOT": str(BASE_DIR / "projects"),
+        "PROJECTS_ROOT": str(DEFAULT_PROJECTS_DIR),
         "GLOBAL_MODEL_CMD": "gh copilot chat -p",
         "LOCAL_MODEL": "qwen2.5:7b",
         "WIP_LIMIT": 8,
@@ -235,68 +236,77 @@ class WebTPM:
         if self.active_idx >= len(all_p): self.active_idx = 0
         p = all_p[self.active_idx]
         if not p['path'] or not p['path'].exists(): return []
+        
         content = p['path'].read_text(encoding='utf-8', errors='ignore')
+        lines = content.splitlines()
         
-        # Split sections strictly
-        active_part = content
-        archive_part = ""
-        tasks_part = ""
+        tasks = []
+        today = datetime.date.today()
+        current_section = None
         
-        if "## ARCHIVE" in active_part:
-            active_part, archive_part = active_part.split("## ARCHIVE", 1)
-        
-        # Use regex to find ## Tasks section precisely
-        tasks_section_match = re.search(r'## Tasks\n(.*?)(?=\n##|$)', active_part, re.DOTALL)
-        if tasks_section_match:
-            tasks_part = tasks_section_match.group(1)
-        else:
-            # Fallback: Strip summary if exists, then use rest as tasks
-            tasks_part = active_part
-            if "## PROJECT SUMMARY" in tasks_part:
-                tasks_part = tasks_part.split("## PROJECT SUMMARY")[0]
+        for i, line in enumerate(lines):
+            # Track current section
+            header_match = re.match(r'^#+\s+(.*)', line)
+            if header_match:
+                current_section = header_match.group(1).strip()
+                continue
+            
+            # Check if line is a task
+            match = re.match(r'^(\s*-\s?\[([\sxX])\]\s*)(.*)', line)
+            if match:
+                prefix, is_done, raw_text = match.group(1), match.group(2).lower() == 'x', match.group(3)
+                
+                # Metadata parsing
+                prio_match = re.search(r'#p([123])', raw_text)
+                br_match = re.search(r'#blocked:\s*([^#@\n]+)', raw_text)
+                dep_match = re.search(r'#dep:\s*([^#@\n]+)', raw_text)
+                due_match = re.search(r'@(\d{4}-\d{2}-\d{2})', raw_text)
+                desc_match = re.search(r'\(([^)]+)\)\s*$', raw_text)
+                
+                prio = int(prio_match.group(1)) if prio_match else 4
+                br = br_match.group(1).strip() if br_match else None
+                dr = dep_match.group(1).strip() if dep_match else None
+                desc_val = desc_match.group(1).strip() if desc_match else ""
+                
+                dv, ov = None, False
+                if due_match:
+                    try:
+                        dv = datetime.datetime.strptime(due_match.group(1), "%Y-%m-%d").date()
+                        if dv < today and not is_done: ov = True
+                    except: pass
+                
+                ct = raw_text
+                for m in [prio_match, br_match, dep_match, due_match, desc_match]:
+                    if m: ct = ct.replace(m.group(0), '')
+                
+                is_archived = (current_section == "ARCHIVE")
+                
+                # If we are only showing active tasks and this one is archived, skip unless requested
+                if is_archived and not self.show_archived_t:
+                    continue
+                # If we are in the main view, only show tasks from "Tasks" section or unsectioned tasks
+                # but if ## Tasks exists, we ONLY show from there.
+                
+                # Logic: If ## Tasks exists, only show tasks in that section.
+                # If ## Tasks does NOT exist, show all tasks (except ARCHIVE).
+                has_tasks_section = "## Tasks" in content
+                if not is_archived:
+                    if has_tasks_section and current_section != "Tasks":
+                        continue
 
-        def extract_tasks(text, archived=False):
-            tasks = []
-            today = datetime.date.today()
-            lines = text.splitlines()
-            for i, line in enumerate(lines):
-                match = re.match(r'^(\s*-\s?\[([\sxX])\]\s*)(.*)', line)
-                if match:
-                    prefix, is_done, raw_text = match.group(1), match.group(2).lower() == 'x', match.group(3)
-                    prio_match = re.search(r'#p([123])', raw_text)
-                    br_match = re.search(r'#blocked:\s*([^#@\n]+)', raw_text)
-                    dep_match = re.search(r'#dep:\s*([^#@\n]+)', raw_text)
-                    due_match = re.search(r'@(\d{4}-\d{2}-\d{2})', raw_text)
-                    desc_match = re.search(r'\(([^)]+)\)\s*$', raw_text)
-                    
-                    prio = int(prio_match.group(1)) if prio_match else 4
-                    br = br_match.group(1).strip() if br_match else None
-                    dr = dep_match.group(1).strip() if dep_match else None
-                    desc_val = desc_match.group(1).strip() if desc_match else ""
-                    
-                    dv, ov = None, False
-                    if due_match:
-                        try:
-                            dv = datetime.datetime.strptime(due_match.group(1), "%Y-%m-%d").date()
-                            if dv < today and not is_done: ov = True
-                        except: pass
-                    
-                    ct = raw_text
-                    for m in [prio_match, br_match, dep_match, due_match, desc_match]:
-                        if m: ct = ct.replace(m.group(0), '')
-                    
-                    tasks.append({
-                        'line_idx': i, 'is_done': is_done, 'clean_text': ct.strip(), 
-                        'raw_text': raw_text, 'prio': prio, 
-                        'blocked': br, 'dep': dr, 'desc': desc_val,
-                        'due': due_match.group(1) if due_match else None, 
-                        'overdue': ov, 'is_archived': archived
-                    })
-            return tasks
-
-        tasks = extract_tasks(tasks_part)
-        if self.show_archived_t:
-            tasks += extract_tasks(archive_part, archived=True)
+                tasks.append({
+                    'line_idx': i, 
+                    'is_done': is_done, 
+                    'clean_text': ct.strip(), 
+                    'raw_text': raw_text, 
+                    'prio': prio, 
+                    'blocked': br, 
+                    'dep': dr, 
+                    'desc': desc_val,
+                    'due': due_match.group(1) if due_match else None, 
+                    'overdue': ov, 
+                    'is_archived': is_archived
+                })
             
         tasks.sort(key=lambda x: (x['is_archived'], x['is_done'], x['prio'], 0 if x['overdue'] else (1 if x['due'] else 2), x['due'] or "9999-12-31", x['line_idx']))
         return tasks
