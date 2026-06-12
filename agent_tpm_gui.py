@@ -449,19 +449,14 @@ class WebTPM:
         else:
             tasks_part = clean_notes # Fallback
             
-        prompt = (f"Act as a TPM. Provide a punchy 'at-a-glance' overview of this project.\n\n"
-                  f"--- PROJECT BACKGROUND (Use for Mission/Owner) ---\n{project_info}\n\n"
-                  f"--- CURRENT TASKS (Use for Progress/Status) ---\n{tasks_part}\n\n"
-                  f"INSTRUCTIONS:\n"
-                  f"- MISSION: State the core purpose based on Background.\n"
-                  f"- OWNER: Identify stakeholders/owner from Background.\n"
-                  f"- PROGRESS: Summarize what was recently done vs what is next based on Tasks.\n"
-                  f"- STATUS: Identify critical blockers or current project health.\n\n"
-                  f"REQUIRED FORMAT (Return ONLY these 4 bullet points, no other text):\n"
-                  f"- 🎯 **MISSION:** [One concise sentence]\n"
-                  f"- 👥 **OWNER:** [Owner/Stakeholders]\n"
-                  f"- 📈 **PROGRESS:** [Short summary of current work/velocity]\n"
-                  f"- ⚠️ **STATUS:** [Blockers or 'On Track']\n")
+        prompt = (f"Act as a Technical Project Manager. Provide a precise 'at-a-glance' project summary.\n\n"
+                  f"--- DATA SOURCE: CURRENT TASKS ---\n{tasks_part}\n\n"
+                  f"--- DATA SOURCE: PROJECT INFO ---\n{project_info}\n\n"
+                  f"STRICT INSTRUCTIONS:\n"
+                  f"1. START with exactly 3-5 sentences describing current project progress, velocity, and technical activity based ON THE TASKS.\n"
+                  f"2. FOLLOW with exactly 2-3 sentences providing the project mission and owner context based ON THE PROJECT INFO.\n"
+                  f"3. DO NOT use bullet points or headers. Return one single paragraph or two short blocks of text.\n"
+                  f"4. TOTAL LENGTH must be between 5-8 sentences. Be punchy and professional. No conversational filler.")
         mode = self.model_prefs.get("Summary", "local")
         engine_func = AIEngine.run_local if mode == "local" else AIEngine.run_copilot
         
