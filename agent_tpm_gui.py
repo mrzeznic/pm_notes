@@ -208,13 +208,15 @@ class WebTPM:
                 if n_path.exists():
                     try:
                         c = n_path.read_text(encoding='utf-8', errors='ignore')
-                        ls = c.splitlines()
+                        # Only scan active part (before ARCHIVE)
+                        active_c = c.split("## ARCHIVE")[0]
+                        ls = active_c.splitlines()
                         ts = [l for l in ls if re.match(r'^\s*-\s?\[[\sxX]\]', l)]
                         tot = len(ts)
                         dc = len([l for l in ts if re.search(r'\[[xX]\]', l)])
                         tc = len([l for l in ts if re.match(r'^\s*-\s?\[\s\]', l) and "#blocked" not in l])
                         bc = len([l for l in ls if "#blocked" in l])
-                        uc = len(re.findall(r'#urgent|#high|\[!\]', c, re.IGNORECASE))
+                        uc = len(re.findall(r'#urgent|#high|\[!\]', active_c, re.IGNORECASE))
                     except: pass
                 prog = (dc / tot * 100) if tot > 0 else 0
                 projs.append({"name": d.name, "todos": tc, "blockers": bc, "urgent": uc, "progress": prog, "path": n_path, "dir": d, "is_archived": is_archived})
