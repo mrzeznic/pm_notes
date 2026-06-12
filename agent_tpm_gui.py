@@ -449,14 +449,14 @@ class WebTPM:
         else:
             tasks_part = clean_notes # Fallback
             
-        prompt = (f"Act as a Technical Project Manager. Provide a precise 'at-a-glance' project summary.\n\n"
-                  f"--- DATA SOURCE: CURRENT TASKS ---\n{tasks_part}\n\n"
-                  f"--- DATA SOURCE: PROJECT INFO ---\n{project_info}\n\n"
-                  f"STRICT INSTRUCTIONS:\n"
-                  f"1. START with exactly 3-5 sentences describing current project progress, velocity, and technical activity based ON THE TASKS.\n"
-                  f"2. FOLLOW with exactly 2-3 sentences providing the project mission and owner context based ON THE PROJECT INFO.\n"
-                  f"3. DO NOT use bullet points or headers. Return one single paragraph or two short blocks of text.\n"
-                  f"4. TOTAL LENGTH must be between 5-8 sentences. Be punchy and professional. No conversational filler.")
+        prompt = (f"Act as a Technical Project Manager. Provide a highly focused 'at-a-glance' summary of this project.\n\n"
+                  f"--- SOURCE 1: CURRENT TASKS (Dynamic Progress) ---\n{tasks_part}\n\n"
+                  f"--- SOURCE 2: PROJECT INFO (Static Context) ---\n{project_info}\n\n"
+                  f"STRICT NARRATIVE STRUCTURE:\n"
+                  f"1. LEAD (3-5 sentences): Describe current progress, recent velocity, and technical activity based ONLY on the TASKS.\n"
+                  f"2. CLOSE (2-3 sentences): Summarize project mission and owner details based ONLY on the PROJECT INFO.\n"
+                  f"3. FORMAT: Return exactly one paragraph of continuous text. No bullets, no headers.\n"
+                  f"4. CONSTRAINT: Total length must be 5-8 sentences. Be punchy and technical. No filler.")
         mode = self.model_prefs.get("Summary", "local")
         engine_func = AIEngine.run_local if mode == "local" else AIEngine.run_copilot
         
