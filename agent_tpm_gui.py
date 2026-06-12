@@ -14,6 +14,7 @@ from nicegui import ui, app, run, core
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR) # Force CWD to script directory for portability
 DEFAULT_PROJECTS_DIR = BASE_DIR / "projects"
+SYSTEM_LOG_FILE = BASE_DIR / "tpm_system.log"
 
 # --- CONFIGURATION PERSISTENCE ---
 CONFIG_FILE = BASE_DIR / "tpm_config.json"
@@ -72,7 +73,7 @@ CONFIG = load_config()
 
 # --- UTILS ---
 class AILogger:
-    """Manages system and AI event logs for the UI."""
+    """Manages system and AI event logs for the UI and file persistence."""
     logs = []
     
     @classmethod
@@ -80,8 +81,19 @@ class AILogger:
         ts = datetime.datetime.now().strftime("%H:%M:%S")
         icons = {"info": "ℹ️", "success": "✅", "warning": "⚠️", "error": "🚨", "ai": "🤖"}
         icon = icons.get(type, "•")
-        cls.logs.append(f"[{ts}] {icon} {message}")
+        
+        # 1. Write full log to file
+        try:
+            with open(SYSTEM_LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.datetime.now().isoformat()}] [{type.upper()}] {message}\n")
+        except: pass
+        
+        # 2. Add truncated message to UI list (prevent UI layout crashes)
+        msg_str = str(message)
+        short_msg = msg_str if len(msg_str) <= 80 else msg_str[:77] + "..."
+        cls.logs.append(f"[{ts}] {icon} {short_msg}")
         if len(cls.logs) > 50: cls.logs.pop(0)
+        
         # Trigger UI update only if app is ready and event loop is running
         if hasattr(app, 'tpm_instance') and core.loop:
             try:
