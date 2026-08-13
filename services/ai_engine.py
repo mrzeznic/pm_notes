@@ -195,23 +195,37 @@ class AIEngine:
             f"Parent Task: {task_title}\n"
             f"Context / Description: {task_desc or 'None'}\n\n"
             f"FORMAT RULES:\n"
-            f"1. Return ONLY the subtask items, one per line.\n"
-            f"2. Each line must be in format: Actionable title #p<1|2|3> (Brief context)\n"
-            f"3. Do not include markdown bullet dashes '- [ ]' in the response.\n"
+            f"1. Return ONLY the subtask items.\n"
+            f"2. You MUST use standard markdown checkboxes for each subtask: '- [ ] Actionable title #p<1|2|3>'\n"
+            f"3. You may include multi-line descriptions or nested sub-bullets under each checkbox to provide more context. Our system supports full markdown blocks!\n"
             f"4. Do not include conversational text, headers, or explanations."
         )
         res = await cls.run_prompt(prompt, "Tech Plan", config)
         if "⚠️" in res:
             return []
 
-        lines = [line.strip() for line in res.splitlines() if line.strip()]
+        # We can parse the returned string with markdown-it-py to extract the generated tasks
+        from markdown_it import MarkdownIt
+        md = MarkdownIt()
+        tokens = md.parse(res)
+        lines = res.splitlines()
+        
         cleaned = []
-        for l in lines:
-            # Strip checkboxes, numbered bullets (1., 10., (1), 1)), bullets, dashes
-            l = re.sub(r'^\s*(?:-\s?\[[\sxX]\]|\(?\d+[\.\)]|[-*•])\s*', '', l)
-            l = l.strip()
-            if l:
-                cleaned.append(l)
+        for t in tokens:
+            if t.type == "list_item_open" and t.map:
+                start, end = t.map
+                slice_lines = lines[start:end]
+                if slice_lines and "- [" in slice_lines[0]:
+                    cleaned.append("\n".join(slice_lines))
+        
+        # Fallback if AI didn't format as list items properly
+        if not cleaned:
+            for line in lines:
+                if line.strip().startswith("- ["):
+                    cleaned.append(line.strip())
+                elif line.strip():
+                    cleaned.append(f"- [ ] {line.strip()}")
+                    
         return cleaned[:6]
 
     @classmethod
@@ -224,9 +238,9 @@ class AIEngine:
             f"OUTPUT FORMAT (STRICT):\n"
             f"### 🚀 Standup: {project_name} ({today_str})\n\n"
             f"**🟢 Completed / Recent Progress:**\n"
-            f"- Bullet points of completed work based on [x] tasks\n\n"
+            f"- Bullet points of completed work based on [x] tasks and their sub-items\n\n"
             f"**🔵 Focus for Today (In Flight):**\n"
-            f"- Key active tasks, priorities #p1/#p2, and target due dates\n\n"
+            f"- Key active tasks, priorities #p1/#p2, and target due dates. Summarize long descriptions.\n\n"
             f"**🔴 Blockers & Vulnerabilities:**\n"
             f"- Explicit blockers (#blocked) or dependency risks (#dep)\n\n"
             f"Be concise, technical, and high-impact."

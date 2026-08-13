@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# System
+.DS_Store
+
+# Application Specific (SECRETS & LOGS)
+tpm_config.json
+tpm_system.log
+*.log
+
+# Environment variables
+.env

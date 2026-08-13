@@ -7,7 +7,8 @@ from typing import Optional, List
 @dataclass
 class Task:
     id: str
-    line_idx: int
+    line_start: int
+    line_end: int
     clean_text: str
     raw_text: str
     is_done: bool
@@ -15,11 +16,13 @@ class Task:
     blocked: Optional[str] = None
     dep: Optional[str] = None
     desc: str = ""
+    body_lines: Optional[List[str]] = None
     due: Optional[str] = None
     overdue: bool = False
     is_archived: bool = False
     section: Optional[str] = None
     status_override: Optional[str] = None  # Explicit status: 'todo', 'in_progress', 'blocked', 'done'
+    project_path: Optional[Path] = None
 
     @classmethod
     def generate_id(cls, raw_line: str, line_idx: int) -> str:
@@ -39,7 +42,7 @@ class Task:
         return "todo"
 
     def to_markdown_line(self) -> str:
-        """Converts task back into standard markdown task format."""
+        """Converts task back into standard markdown task format, preserving multi-line body."""
         status_val = self.kanban_status
         is_done = (status_val == "done") or self.is_done
         status_box = "x" if is_done else " "
@@ -64,6 +67,9 @@ class Task:
         if self.desc and self.desc.strip():
             line += f" ({self.desc.strip()})"
             
+        # Append the multi-line body if it exists
+        if self.body_lines:
+            return line + "\n" + "\n".join(self.body_lines)
         return line
 
 @dataclass

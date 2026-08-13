@@ -1,108 +1,121 @@
 import datetime
 import re
 from typing import List, Tuple, Optional
+from pathlib import Path
 from models.task import Task
 
 class MarkdownParser:
     @staticmethod
-    def parse_tasks(content: str, show_archived: bool = False) -> List[Task]:
-        """Parses all tasks from markdown content with metadata, tag, and section awareness."""
+    def parse_tasks(content: str, show_archived: bool = False, project_path: Optional[Path] = None) -> List[Task]:
+        """Parses all tasks from markdown content with metadata, tag, and section awareness using AST."""
         if not content:
             return []
 
+        from markdown_it import MarkdownIt
+        md = MarkdownIt()
+        tokens = md.parse(content)
         lines = content.splitlines()
+
         tasks: List[Task] = []
         today = datetime.date.today()
         current_section = None
         in_tasks_section = False
         has_tasks_section = bool(re.search(r'^##+\s+Tasks', content, re.MULTILINE | re.IGNORECASE))
-
-        for i, line in enumerate(lines):
-            # Track current header section
-            header_match = re.match(r'^(#+)\s+(.*)', line)
-            if header_match:
-                level = len(header_match.group(1))
-                header_name = header_match.group(2).strip()
-                current_section = header_name
-
-                # Section tracking: Level 2 headers define primary sections
-                if level == 2:
-                    if "TASKS" in header_name.upper():
-                        in_tasks_section = True
-                    else:
-                        in_tasks_section = False
-                # If level > 2 (e.g. ### Sub-team or Phase), preserve in_tasks_section if already under Tasks
-                continue
-
-            # Task match: bullet with checkbox
-            match = re.match(r'^(\s*-\s?\[([\sxX])\]\s*)(.*)', line)
-            if match:
-                is_done = match.group(2).lower() == 'x'
-                raw_text = match.group(3)
-
-                # Extract metadata tags
-                prio_match = re.search(r'#p([123])', raw_text, re.IGNORECASE)
-                br_match = re.search(r'#blocked:\s*([^#@\n(]+)', raw_text, re.IGNORECASE)
-                dep_match = re.search(r'#dep:\s*([^#@\n(]+)', raw_text, re.IGNORECASE)
-                due_match = re.search(r'@(\d{4}-\d{2}-\d{2})', raw_text)
-                desc_match = re.search(r'\(([^)]+)\)\s*$', raw_text)
-                wip_match = re.search(r'#(?:in_progress|wip)\b', raw_text, re.IGNORECASE)
-
-                prio = int(prio_match.group(1)) if prio_match else 4
-                br = br_match.group(1).strip() if br_match else None
-                dr = dep_match.group(1).strip() if dep_match else None
-                desc_val = desc_match.group(1).strip() if desc_match else ""
-
-                due_str = due_match.group(1) if due_match else None
-                overdue = False
-                if due_str:
-                    try:
-                        dv = datetime.datetime.strptime(due_str, "%Y-%m-%d").date()
-                        if dv < today and not is_done:
-                            overdue = True
-                    except Exception:
-                        pass
-
-                clean_text = raw_text
-                for m in [prio_match, br_match, dep_match, due_match, desc_match, wip_match]:
-                    if m:
-                        clean_text = clean_text.replace(m.group(0), '')
-                clean_text = clean_text.strip()
-
-                is_archived = (current_section is not None and "ARCHIVE" in current_section.upper())
-
-                if is_archived and not show_archived:
+        
+        for i, t in enumerate(tokens):
+            if t.type == "heading_open":
+                level = int(t.tag[1:])
+                inline_tok = tokens[i+1]
+                if inline_tok.type == "inline":
+                    header_name = inline_tok.content.strip()
+                    current_section = header_name
+                    if level == 2:
+                        in_tasks_section = "TASKS" in header_name.upper()
+            
+            elif t.type == "list_item_open" and t.map:
+                start, end = t.map
+                if start >= len(lines):
                     continue
+                slice_lines = lines[start:end]
+                if not slice_lines:
+                    continue
+                
+                first_line = slice_lines[0]
+                match = re.match(r'^(\s*-\s?\[([\sxX])\]\s*)(.*)', first_line)
+                if match:
+                    is_done = match.group(2).lower() == 'x'
+                    raw_text = match.group(3)
+                    body_lines = slice_lines[1:] if len(slice_lines) > 1 else None
+                    
+                    # Extract metadata tags from first line raw_text
+                    prio_match = re.search(r'#p([123])', raw_text, re.IGNORECASE)
+                    br_match = re.search(r'#blocked:\s*([^#@\n(]+)', raw_text, re.IGNORECASE)
+                    dep_match = re.search(r'#dep:\s*([^#@\n(]+)', raw_text, re.IGNORECASE)
+                    due_match = re.search(r'@(\d{4}-\d{2}-\d{2})', raw_text)
+                    desc_match = re.search(r'\(([^)]+)\)\s*$', raw_text)
+                    wip_match = re.search(r'#(?:in_progress|wip)\b', raw_text, re.IGNORECASE)
 
-                if not is_archived and has_tasks_section:
-                    if not in_tasks_section and not (current_section and "TASKS" in current_section.upper()):
+                    prio = int(prio_match.group(1)) if prio_match else 4
+                    br = br_match.group(1).strip() if br_match else None
+                    dr = dep_match.group(1).strip() if dep_match else None
+                    desc_val = desc_match.group(1).strip() if desc_match else ""
+
+                    due_str = due_match.group(1) if due_match else None
+                    overdue = False
+                    if due_str:
+                        try:
+                            dv = datetime.datetime.strptime(due_str, "%Y-%m-%d").date()
+                            if dv < today and not is_done:
+                                overdue = True
+                        except Exception:
+                            pass
+
+                    clean_text = raw_text
+                    for m in [prio_match, br_match, dep_match, due_match, desc_match, wip_match]:
+                        if m:
+                            clean_text = clean_text.replace(m.group(0), '')
+                    clean_text = clean_text.strip()
+
+                    is_archived = (current_section is not None and "ARCHIVE" in current_section.upper())
+
+                    if is_archived and not show_archived:
                         continue
 
-                task = Task(
-                    id=Task.generate_id(line, i),
-                    line_idx=i,
-                    clean_text=clean_text,
-                    raw_text=raw_text,
-                    is_done=is_done,
-                    prio=prio,
-                    blocked=br,
-                    dep=dr,
-                    desc=desc_val,
-                    due=due_str,
-                    overdue=overdue,
-                    is_archived=is_archived,
-                    section=current_section
-                )
-                tasks.append(task)
+                    if not is_archived and has_tasks_section:
+                        if not in_tasks_section and not (current_section and "TASKS" in current_section.upper()):
+                            continue
 
-        # Sort tasks: active first, undone first, high priority first, overdue first, due date, line index
+                    import hashlib
+                    task_id = hashlib.md5(f"{start}:{first_line.strip()}".encode('utf-8')).hexdigest()[:10]
+                    
+                    task = Task(
+                        id=task_id,
+                        line_start=start,
+                        line_end=end,
+                        clean_text=clean_text,
+                        raw_text=raw_text,
+                        is_done=is_done,
+                        prio=prio,
+                        blocked=br,
+                        dep=dr,
+                        desc=desc_val,
+                        body_lines=body_lines,
+                        due=due_str,
+                        overdue=overdue,
+                        is_archived=is_archived,
+                        section=current_section,
+                        project_path=project_path
+                    )
+                    tasks.append(task)
+
+        # Sort tasks
         tasks.sort(key=lambda x: (
             x.is_archived,
             x.is_done,
             x.prio,
             0 if x.overdue else (1 if x.due else 2),
             x.due or "9999-12-31",
-            x.line_idx
+            x.line_start
         ))
         return tasks
 
@@ -159,14 +172,21 @@ class MarkdownParser:
             return content.strip() + f"\n\n## Tasks\n{task_line}\n"
 
     @staticmethod
-    def insert_subtasks(content: str, parent_line_idx: int, subtasks: List[str]) -> str:
-        """Inserts generated subtasks immediately after parent task line."""
+    def insert_subtasks(content: str, line_end: int, subtasks: List[str]) -> str:
+        """Inserts generated subtasks immediately after parent task block."""
         lines = content.splitlines()
-        if not (0 <= parent_line_idx < len(lines)):
+        if not (0 <= line_end <= len(lines)):
             return content
 
-        formatted_subtasks = [f"- [ ] {st.strip()}" for st in subtasks if st.strip()]
-        new_lines = lines[:parent_line_idx + 1] + formatted_subtasks + lines[parent_line_idx + 1:]
+        formatted_subtasks = []
+        for st in subtasks:
+            st = st.strip()
+            if st:
+                if st.startswith("- ["):
+                    formatted_subtasks.append(st)
+                else:
+                    formatted_subtasks.append(f"- [ ] {st}")
+        new_lines = lines[:line_end] + formatted_subtasks + lines[line_end:]
         return "\n".join(new_lines) + "\n"
 
     @staticmethod
@@ -184,15 +204,18 @@ class MarkdownParser:
             return f"{content.strip()}\n\n{summary_block}"
 
     @staticmethod
-    def archive_task(content: str, line_idx: int) -> Tuple[str, Optional[str]]:
-        """Removes a task from its current line and moves it to ## ARCHIVE."""
+    def archive_task(content: str, line_start: int, line_end: int) -> Tuple[str, Optional[str]]:
+        """Removes a task block from its current location and moves it to ## ARCHIVE."""
         lines = content.splitlines()
-        if not (0 <= line_idx < len(lines)):
+        if not (0 <= line_start < len(lines) and line_start < line_end <= len(lines)):
             return content, None
 
-        task_line = lines.pop(line_idx)
+        task_lines = lines[line_start:line_end]
+        del lines[line_start:line_end]
+
         today_str = datetime.date.today().strftime('%Y-%m-%d')
-        archived_entry = f"{task_line} (Archived: {today_str})"
+        task_lines[0] = f"{task_lines[0]} (Archived: {today_str})"
+        archived_entry = "\n".join(task_lines)
         new_content = "\n".join(lines)
 
         archive_match = re.search(r'^##+\s+ARCHIVE.*?(?=(?:\n##+|\Z))', new_content, re.DOTALL | re.MULTILINE | re.IGNORECASE)
@@ -203,15 +226,17 @@ class MarkdownParser:
         else:
             new_content = f"{new_content.strip()}\n\n## ARCHIVE\n{archived_entry}\n"
 
-        return new_content, task_line
+        return new_content, task_lines[0]
 
     @staticmethod
-    def delete_task(content: str, line_idx: int) -> Tuple[str, Optional[str]]:
-        """Removes a task permanently from the markdown content."""
+    def delete_task(content: str, line_start: int, line_end: int) -> Tuple[str, Optional[str]]:
+        """Removes a task block permanently from the markdown content."""
         lines = content.splitlines()
-        if not (0 <= line_idx < len(lines)):
+        if not (0 <= line_start < len(lines) and line_start < line_end <= len(lines)):
             return content, None
-        deleted_line = lines.pop(line_idx)
+        
+        deleted_line = lines[line_start]
+        del lines[line_start:line_end]
         return "\n".join(lines) + "\n", deleted_line
 
     @staticmethod

@@ -12,6 +12,7 @@ from models.task import Task, Project
 from services.ai_engine import AIEngine
 from services.markdown_parser import MarkdownParser
 from services.project_service import ProjectService
+from services.project_watcher import ProjectWatcher
 from ui.styles import CUSTOM_CSS
 
 class WebTPM:
@@ -22,10 +23,12 @@ class WebTPM:
         self.active_idx = 0
         self.projects: List[Project] = []
         self.archived_projects: List[Project] = []
+        self.watcher = ProjectWatcher(self.on_file_changed)
 
         # View and Filter State
-        self.view_mode = "list"  # "list" or "kanban"
+        self.view_mode = 'kanban'  # 'list', 'kanban', 'timeline', 'raw'
         self.search_query = ""
+        self.global_search = False
         self.filter_type = "all"  # "all", "p1", "in_progress", "blocked", "overdue"
         
         self.insights_content = ""
@@ -73,7 +76,11 @@ class WebTPM:
             return Project(name="Empty_Portfolio")
         if self.active_idx >= len(all_p):
             self.active_idx = 0
-        return all_p[self.active_idx]
+        
+        active = all_p[self.active_idx]
+        if active.path:
+            self.watcher.watch(active.path.parent)
+        return active
 
     def refresh_portfolio(self):
         root_path = Path(self.config["PROJECTS_ROOT"])
@@ -81,39 +88,50 @@ class WebTPM:
         AILogger.log(f"Discovery: {len(self.projects)} active projects in '{self.config['PROJECTS_ROOT']}'", "info")
 
     def parse_active_tasks(self) -> List[Task]:
-        project = self.get_active_project()
-        if not project.path or not project.path.exists():
-            return []
-        try:
-            content = project.path.read_text(encoding='utf-8', errors='ignore')
-            raw_tasks = MarkdownParser.parse_tasks(content, self.show_archived_t)
-            
-            # Apply Search and Tag Filters
-            filtered = []
-            q = self.search_query.lower().strip()
-            for t in raw_tasks:
-                if q and (q not in t.clean_text.lower() and q not in t.desc.lower() and q not in (t.blocked or "").lower() and q not in (t.dep or "").lower()):
-                    continue
-                if self.filter_type == "p1" and t.prio != 1:
-                    continue
-                if self.filter_type == "in_progress" and t.kanban_status != "in_progress":
-                    continue
-                if self.filter_type == "blocked" and not t.blocked:
-                    continue
-                if self.filter_type == "overdue" and not t.overdue:
-                    continue
-                filtered.append(t)
-            return filtered
-        except Exception as e:
-            AILogger.log(f"Error parsing tasks: {e}", "error")
-            return []
+        projects_to_parse = []
+        if getattr(self, 'global_search', False):
+            projects_to_parse = [p for p in self.projects if p.path and p.path.exists()]
+        else:
+            p = self.get_active_project()
+            if p and p.path and p.path.exists():
+                projects_to_parse = [p]
+
+        raw_tasks = []
+        for proj in projects_to_parse:
+            try:
+                content = proj.path.read_text(encoding='utf-8', errors='ignore')
+                raw_tasks.extend(MarkdownParser.parse_tasks(content, self.show_archived_t, project_path=proj.path))
+            except Exception as e:
+                AILogger.log(f"Error parsing tasks for {proj.name}: {e}", "error")
+        
+        # Apply Search and Tag Filters
+        filtered = []
+        q = self.search_query.lower().strip()
+        for t in raw_tasks:
+            if q and (q not in t.clean_text.lower() and q not in t.desc.lower() and q not in (t.blocked or "").lower() and q not in (t.dep or "").lower()):
+                continue
+            if self.filter_type == "p1" and t.prio != 1:
+                continue
+            if self.filter_type == "in_progress" and t.kanban_status != "in_progress":
+                continue
+            if self.filter_type == "blocked" and not t.blocked:
+                continue
+            if self.filter_type == "overdue" and not t.overdue:
+                continue
+            filtered.append(t)
+        return filtered
 
     async def switch_project_async(self, idx: int):
         self.active_idx = idx
+        self.global_search = False
         await self.render_sidebar.refresh()
         await self.render_tasks_container.refresh()
         await self.render_project_summary.refresh()
         await self.update_project_summary()
+
+    async def toggle_global_search(self):
+        await self.render_sidebar.refresh()
+        await self.render_tasks_container.refresh()
 
     def move_kanban_status(self, task: Task, direction: int):
         statuses = ["todo", "in_progress", "blocked", "done"]
@@ -123,51 +141,67 @@ class WebTPM:
             if 0 <= new_idx < len(statuses):
                 task.status_override = statuses[new_idx]
                 task.is_done = (task.status_override == 'done')
-                self.update_task_line(task.line_idx, task.to_markdown_line())
+                self.update_task_block(task, task.to_markdown_line())
         except ValueError:
             pass
 
-    def toggle_task(self, line_idx: int, current_state: bool):
-        project = self.get_active_project()
-        if not project.path or not project.path.exists():
+    def toggle_task(self, task: Task, current_state: bool):
+        path = task.project_path or self.get_active_project().path
+        if not path or not path.exists():
             return
-        lines = project.path.read_text(encoding='utf-8').splitlines()
-        if not (0 <= line_idx < len(lines)):
+        lines = path.read_text(encoding='utf-8').splitlines()
+        if not (0 <= task.line_start < len(lines)):
             return
 
-        line = lines[line_idx]
+        line = lines[task.line_start]
         is_done = bool(re.search(r'\[[xX]\]', line))
         status = "COMPLETED" if not is_done else "RE-OPENED"
         AILogger.log(f"Task {status}: {line[:35]}...", "info")
 
         if is_done:
-            lines[line_idx] = re.sub(r'\[[xX]\]', '[ ]', line, count=1)
+            lines[task.line_start] = re.sub(r'\[[xX]\]', '[ ]', line, count=1)
         else:
-            lines[line_idx] = re.sub(r'\[\s\]', '[x]', line, count=1)
+            lines[task.line_start] = re.sub(r'\[\s\]', '[x]', line, count=1)
 
         ProjectService.atomic_write(project.path, "\n".join(lines) + "\n")
         self.refresh_portfolio()
         self.render_sidebar.refresh()
         self.render_tasks_container.refresh()
 
-    def move_task(self, line_idx: int, direction: int):
-        project = self.get_active_project()
-        if not project.path or not project.path.exists():
+    def move_task(self, task: Task, direction: int):
+        path = task.project_path or self.get_active_project().path
+        if not path or not path.exists():
             return
-        lines = project.path.read_text(encoding='utf-8').splitlines()
-        task_indices = [i for i, l in enumerate(lines) if re.match(r'^\s*-\s?\[[\sxX]\]', l)]
-        try:
-            curr_pos = task_indices.index(line_idx)
-            new_pos = curr_pos + direction
-            if 0 <= new_pos < len(task_indices):
-                swap_idx = task_indices[new_pos]
-                lines[line_idx], lines[swap_idx] = lines[swap_idx], lines[line_idx]
-                ProjectService.atomic_write(project.path, "\n".join(lines) + "\n")
-                self.refresh_portfolio()
-                self.render_sidebar.refresh()
-                self.render_tasks_container.refresh()
-        except ValueError:
-            pass
+        content = path.read_text(encoding='utf-8')
+        lines = content.splitlines()
+        tasks = MarkdownParser.parse_tasks(content, show_archived=self.config["SHOW_ARCHIVED"])
+        
+        # Sort by actual line index to find strictly contiguous tasks in file
+        tasks.sort(key=lambda t: t.line_start)
+        
+        curr_idx = next((i for i, t in enumerate(tasks) if t.id == task.id), -1)
+        if curr_idx == -1: return
+        
+        new_idx = curr_idx + direction
+        if 0 <= new_idx < len(tasks):
+            swap_task = tasks[new_idx]
+            t1, t2 = (task, swap_task) if task.line_start < swap_task.line_start else (swap_task, task)
+            
+            b1 = lines[t1.line_start:t1.line_end]
+            b2 = lines[t2.line_start:t2.line_end]
+            
+            # Reconstruct the text block containing both tasks and whatever is between them
+            prefix = lines[:t1.line_start]
+            between = lines[t1.line_end:t2.line_start]
+            suffix = lines[t2.line_end:]
+            
+            # Swap them!
+            new_lines = prefix + b2 + between + b1 + suffix
+            
+            ProjectService.atomic_write(project.path, "\n".join(new_lines) + "\n")
+            self.refresh_portfolio()
+            self.render_sidebar.refresh()
+            self.render_tasks_container.refresh()
 
     def add_new_task(self):
         text = self.new_task_input.value.strip()
@@ -182,12 +216,12 @@ class WebTPM:
             self.render_sidebar.refresh()
             self.render_tasks_container.refresh()
 
-    def archive_task(self, line_idx: int):
+    def archive_task(self, task: Task):
         project = self.get_active_project()
         if not project.path or not project.path.exists():
             return
         content = project.path.read_text(encoding='utf-8')
-        updated, archived_line = MarkdownParser.archive_task(content, line_idx)
+        updated, archived_line = MarkdownParser.archive_task(content, task.line_start, task.line_end)
         if archived_line:
             AILogger.log(f"Archived task: {archived_line[:30]}...", "info")
             ProjectService.atomic_write(project.path, updated)
@@ -195,18 +229,30 @@ class WebTPM:
             self.render_sidebar.refresh()
             self.render_tasks_container.refresh()
 
-    def delete_task(self, line_idx: int):
+    async def delete_task(self, task: Task, dialog_to_close=None):
         project = self.get_active_project()
         if not project.path or not project.path.exists():
             return
-        content = project.path.read_text(encoding='utf-8')
-        updated, deleted_line = MarkdownParser.delete_task(content, line_idx)
-        if deleted_line:
-            AILogger.log(f"Deleted task: {deleted_line[:30]}...", "info")
-            ProjectService.atomic_write(project.path, updated)
-            self.refresh_portfolio()
-            self.render_sidebar.refresh()
-            self.render_tasks_container.refresh()
+            
+        with ui.dialog() as confirm_dialog, ui.card().classes('w-96 bg-gray-900 border border-red-900 p-4'):
+            ui.label('Confirm Deletion').classes('text-lg font-bold text-red-500 mb-2')
+            ui.label('Are you sure you want to permanently delete this task?').classes('text-sm text-gray-300 mb-4')
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('Cancel', on_click=confirm_dialog.close).props('flat color=gray')
+                ui.button('Delete', on_click=lambda: confirm_dialog.submit('confirm')).props('color=red')
+        
+        if await confirm_dialog == 'confirm':
+            content = project.path.read_text(encoding='utf-8')
+            updated, deleted_line = MarkdownParser.delete_task(content, task.line_start, task.line_end)
+            if deleted_line:
+                ProjectService.create_backup(project.path)
+                AILogger.log(f"Deleted task: {deleted_line[:30]}...", "info")
+                ProjectService.atomic_write(project.path, updated)
+                self.refresh_portfolio()
+                self.render_sidebar.refresh()
+                self.render_tasks_container.refresh()
+            if dialog_to_close:
+                dialog_to_close.submit(None)
 
     def archive_project(self, idx: Optional[int] = None):
         target_idx = idx if idx is not None else self.active_idx
@@ -244,17 +290,26 @@ class WebTPM:
             self.render_tasks_container.refresh()
             asyncio.create_task(self.update_project_summary())
 
-    def update_task_line(self, line_idx: int, new_line: str):
-        project = self.get_active_project()
-        if not project.path or not project.path.exists():
+    def update_task_block(self, task: Task, new_content: str):
+        path = task.project_path or self.get_active_project().path
+        if not path or not path.exists():
             return
-        lines = project.path.read_text(encoding='utf-8').splitlines()
-        if 0 <= line_idx < len(lines):
-            lines[line_idx] = new_line
+        lines = path.read_text(encoding='utf-8').splitlines()
+        if 0 <= task.line_start < len(lines) and task.line_start < task.line_end <= len(lines):
+            new_lines = new_content.splitlines()
+            lines[task.line_start:task.line_end] = new_lines
             ProjectService.atomic_write(project.path, "\n".join(lines) + "\n")
             self.refresh_portfolio()
             self.render_sidebar.refresh()
             self.render_tasks_container.refresh()
+
+    async def on_file_changed(self):
+        """Callback triggered by ProjectWatcher when notes.md changes externally."""
+        AILogger.log("External file modification detected, refreshing UI...", "info")
+        self.refresh_portfolio()
+        self.render_sidebar.refresh()
+        self.render_tasks_container.refresh()
+        await self.render_project_summary.refresh()
 
     async def update_project_summary(self, force: bool = False):
         project = self.get_active_project()
@@ -326,18 +381,37 @@ class WebTPM:
             self.processing_status = f"Running {name}..."
             await self.render_header_status.refresh()
 
-            # Aggregate all notes if running Daily Roadmap
+            def filter_private_content(content: str) -> str:
+                lines = content.splitlines()
+                # Check project-level #private in the first 15 lines
+                for i in range(min(15, len(lines))):
+                    if "#private" in lines[i]:
+                        return ""
+                
+                # Filter out private tasks
+                tasks = MarkdownParser.parse_tasks(content)
+                private_tasks = [t for t in tasks if "#private" in t.raw_text]
+                for t in sorted(private_tasks, key=lambda x: x.line_start, reverse=True):
+                    del lines[t.line_start:t.line_end]
+                return "\n".join(lines)
+
+            # Aggregate all notes if template requires it
             all_notes_text = ""
-            if name == "Daily Roadmap":
+            if "{all_notes}" in template:
                 for pr in self.projects:
                     if pr.path and pr.path.exists():
-                        all_notes_text += f"\n--- PROJECT: {pr.name} ---\n"
-                        all_notes_text += pr.path.read_text(encoding='utf-8', errors='ignore')
+                        pr_content = pr.path.read_text(encoding='utf-8', errors='ignore')
+                        filtered_pr = filter_private_content(pr_content)
+                        if filtered_pr.strip():
+                            all_notes_text += f"\n--- PROJECT: {pr.name} ---\n{filtered_pr}\n"
+
+            proj_content = project.path.read_text(encoding='utf-8', errors='ignore') if project.path and project.path.exists() else ""
+            filtered_proj_content = filter_private_content(proj_content)
 
             p_text = template.format(
                 project=project.name,
                 topic=topic,
-                notes=project.path.read_text(encoding='utf-8', errors='ignore') if project.path else "",
+                notes=filtered_proj_content,
                 all_notes=all_notes_text
             )
 
@@ -443,7 +517,7 @@ class WebTPM:
         if not project.path or not project.path.exists():
             return
         content = project.path.read_text(encoding='utf-8')
-        updated = MarkdownParser.insert_subtasks(content, parent_task.line_idx, subtasks)
+        updated = MarkdownParser.insert_subtasks(content, parent_task.line_end, subtasks)
         ProjectService.atomic_write(project.path, updated)
         AILogger.log(f"Inserted {len(subtasks)} subtasks under '{parent_task.clean_text[:20]}...'", "success")
         dialog.close()
@@ -541,7 +615,7 @@ class WebTPM:
             wip_limit_val = int(self.config.get("WIP_LIMIT", 5))
 
             for i, pr in enumerate(all_p):
-                act = (i == self.active_idx)
+                act = (i == self.active_idx) and not self.global_search
                 cls = 'sidebar-active shadow-md' if act else 'hover:bg-[#161b22] text-gray-400'
                 wip_alert = (pr.todos > wip_limit_val) and not pr.is_archived
 
@@ -561,36 +635,47 @@ class WebTPM:
                 ui.label('Show Archived').classes('text-[10px] text-gray-500 font-medium')
                 ui.switch(value=self.show_archived_p).bind_value(self, 'show_archived_p').on('update:model-value', self.refresh_portfolio).props('dense size=xs')
 
+            # Global Search Toggle
+            with ui.row().classes('w-full px-2 pt-1 items-center justify-between'):
+                ui.label('Aggregated View').classes('text-[10px] text-gray-500 font-medium')
+                ui.switch(value=self.global_search).bind_value(self, 'global_search').on('update:model-value', self.toggle_global_search).props('dense size=xs')
+
     @ui.refreshable
     def render_tasks_container(self):
         tasks = self.parse_active_tasks()
         with ui.column().classes('col column no-wrap w-full p-3 bg-[#090d13]'):
             
-            # TOP TOOLBAR: View toggle, Filters, Search & Add Task
-            with ui.row().classes('w-full justify-between items-center mb-2 gap-2 flex-wrap shrink-0'):
-                with ui.row().classes('items-center gap-2'):
-                    with ui.button_group().props('dense rounded'):
-                        ui.button('List', icon='format_list_bulleted', on_click=lambda: self.set_view_mode('list')).props(f"{'color=blue' if self.view_mode == 'list' else 'flat color=gray'} dense size=sm")
-                        ui.button('Kanban', icon='view_kanban', on_click=lambda: self.set_view_mode('kanban')).props(f"{'color=blue' if self.view_mode == 'kanban' else 'flat color=gray'} dense size=sm")
-                    ui.badge(f"{len(tasks)} items", color='blue-9').classes('text-[10px]')
+            # HEADER ROW 1: VIEWS, FILTERS, SEARCH & TOGGLES
+            with ui.row().classes('w-full mb-2 justify-between items-center shrink-0 flex-wrap'):
+                with ui.row().classes('items-center gap-4'):
+                    with ui.row().classes('items-center gap-2'):
+                        with ui.button_group().props('dense rounded'):
+                            ui.button('List', icon='format_list_bulleted', on_click=lambda: self.set_view_mode('list')).props(f"{'color=blue' if self.view_mode == 'list' else 'flat color=gray'} dense size=sm")
+                            ui.button('Kanban', icon='view_kanban', on_click=lambda: self.set_view_mode('kanban')).props(f"{'color=blue' if self.view_mode == 'kanban' else 'flat color=gray'} dense size=sm")
+                            ui.button('Timeline', icon='timeline', on_click=lambda: self.set_view_mode('timeline')).props(f"{'color=blue' if self.view_mode == 'timeline' else 'flat color=gray'} dense size=sm")
+                            ui.button('Raw', icon='code', on_click=lambda: self.set_view_mode('raw')).props(f"{'color=blue' if self.view_mode == 'raw' else 'flat color=gray'} dense size=sm")
+                        ui.badge(f"{len(tasks)} items", color='blue-9').classes('text-[10px]')
 
-                # Filter Pills
-                with ui.row().classes('items-center gap-1'):
-                    for f_key, f_label, f_color in [
-                        ('all', 'All', 'gray'),
-                        ('p1', '🔴 High', 'red'),
-                        ('in_progress', '⚡ In Progress', 'blue'),
-                        ('blocked', '🛑 Blocked', 'orange'),
-                        ('overdue', '📅 Overdue', 'purple')
-                    ]:
-                        is_sel = (self.filter_type == f_key)
-                        ui.button(f_label, on_click=lambda k=f_key: self.set_filter_type(k)).props(f"dense size=xs {'color=' + f_color if is_sel else 'flat color=gray'}")
+                    # Filter Pills
+                    with ui.row().classes('items-center gap-1'):
+                        for f_key, f_label, f_color in [
+                            ('all', 'All', 'gray'),
+                            ('p1', '🔴 High', 'red'),
+                            ('in_progress', '⚡ In Progress', 'blue'),
+                            ('blocked', '🛑 Blocked', 'orange'),
+                            ('overdue', '📅 Overdue', 'purple')
+                        ]:
+                            is_sel = (self.filter_type == f_key)
+                            ui.button(f_label, on_click=lambda k=f_key: self.set_filter_type(k)).props(f"dense size=xs {'color=' + f_color if is_sel else 'flat color=gray'}")
 
-                ui.checkbox('Show Archived Tasks', value=self.show_archived_t).bind_value(self, 'show_archived_t').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-gray-400')
+                # Toggles & Search Input
+                with ui.row().classes('items-center gap-3'):
+                    with ui.row().classes('items-center gap-2'):
+                        ui.checkbox('Show Archived', value=self.show_archived_t).bind_value(self, 'show_archived_t').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-gray-400')
+                    self.search_in = ui.input(placeholder='Search tasks (Cmd+K)...', value=self.search_query).on('update:model-value', lambda e: self.update_search(e.args)).classes('w-64 text-sm').props('outlined dark dense rounded')
 
-            # SEARCH & ADD TASK ROW
+            # HEADER ROW 2: ADD TASK ONLY
             with ui.row().classes('w-full mb-2 gap-2 items-center shrink-0'):
-                self.search_in = ui.input(placeholder='Search tasks (Cmd+K)...', value=self.search_query).on('update:model-value', lambda e: self.update_search(e.args)).classes('w-64 text-sm').props('outlined dark dense rounded')
                 self.new_task_input = ui.input(placeholder='Add new task (e.g. Deploy API #p1 @2026-08-20)...').on('keydown.enter', self.add_new_task).classes('flex-grow text-sm').props('outlined dark dense rounded')
                 ui.button(icon='add', on_click=self.add_new_task).props('round dense color=blue').tooltip('Add task')
 
@@ -598,8 +683,12 @@ class WebTPM:
             with ui.element('div').classes('task-body-area col column no-wrap w-full'):
                 if self.view_mode == 'list':
                     self.render_list_view(tasks)
-                else:
+                elif self.view_mode == 'kanban':
                     self.render_kanban_view(tasks)
+                elif self.view_mode == 'timeline':
+                    self.render_timeline_view(tasks)
+                elif self.view_mode == 'raw':
+                    self.render_raw_view()
 
     def set_view_mode(self, mode: str):
         self.view_mode = mode
@@ -612,6 +701,11 @@ class WebTPM:
     def update_search(self, val: str):
         self.search_query = str(val or "")
         self.render_tasks_container.refresh()
+
+    def get_project_color(self, project_name: str) -> str:
+        colors = ['red-8', 'pink-8', 'purple-8', 'deep-purple-8', 'indigo-8', 'blue-8', 'cyan-8', 'teal-8', 'green-8', 'orange-8', 'deep-orange-8']
+        idx = sum(ord(c) for c in project_name) % len(colors)
+        return colors[idx]
 
     def render_list_view(self, tasks: List[Task]):
         with ui.element('div').classes('list-area col column w-full pb-10'):
@@ -636,15 +730,20 @@ class WebTPM:
                             if t.kanban_status == "in_progress" and not t.is_done:
                                 ui.badge('IN PROGRESS', color='blue-8').classes('text-[9px]')
 
+                            if self.global_search and t.project_path:
+                                pname = t.project_path.parent.name
+                                ui.badge(pname, color=self.get_project_color(pname)).classes('text-[9px]')
+
                             with ui.column().classes('gap-0 flex-grow overflow-hidden'):
                                 ui.markdown(t.clean_text).classes(f"{'text-gray-500 line-through' if t.is_done else 'text-gray-100'} text-sm truncate")
                                 if t.desc:
                                     ui.label(t.desc).classes('text-[11px] text-gray-400 truncate')
+                                if t.body_lines:
+                                    ui.markdown("\n".join(t.body_lines)).classes('text-[11px] text-gray-400 mt-1 pl-2 border-l-2 border-gray-700')
 
-                        with ui.row().classes('gap-1 shrink-0 items-center px-1'):
-                            ui.button(icon='auto_fix_high', on_click=lambda _, task=t: self.open_task_breakdown_dialog(task)).props('flat dense size=xs color=purple @click.stop').tooltip('✨ AI Task Breakdown')
-                            ui.button(icon='expand_less', on_click=lambda _, idx=t.line_idx: self.move_task(idx, -1)).props('flat dense size=xs color=gray @click.stop')
-                            ui.button(icon='expand_more', on_click=lambda _, idx=t.line_idx: self.move_task(idx, 1)).props('flat dense size=xs color=gray @click.stop')
+                        with ui.column().classes('gap-1'):
+                            ui.button(icon='expand_less', on_click=lambda _, task=t: self.move_task(task, -1)).props('flat dense size=xs color=gray @click.stop')
+                            ui.button(icon='expand_more', on_click=lambda _, task=t: self.move_task(task, 1)).props('flat dense size=xs color=gray @click.stop')
                             if t.due:
                                 ui.label(f'📅 {t.due}').classes(f"text-[10px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
                             if t.blocked:
@@ -671,7 +770,7 @@ class WebTPM:
                     
                     with ui.column().classes('col w-full p-2'):
                         for t in col_tasks:
-                            with ui.card().classes('w-full mb-2 p-2.5 bg-[#090d13] border border-[#21262d] rounded-lg task-card cursor-pointer'):
+                            with ui.card().classes('w-full mb-2 p-2.5 bg-[#090d13] border border-[#21262d] rounded-lg task-card cursor-pointer').on('click', lambda _, task=t: self.open_task_details(task)):
                                 with ui.row().classes('w-full justify-between items-start mb-1'):
                                     if t.prio <= 3:
                                         colors = {1: 'bg-red-600 text-white', 2: 'bg-yellow-500 text-black', 3: 'bg-green-600 text-white'}
@@ -680,10 +779,15 @@ class WebTPM:
                                         ui.label('')
                                     if t.due:
                                         ui.label(f'📅 {t.due}').classes(f"text-[9px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
+                                    if self.global_search and t.project_path:
+                                        pname = t.project_path.parent.name
+                                        ui.badge(pname, color=self.get_project_color(pname)).classes('text-[8px]')
 
                                 ui.label(t.clean_text).classes(f"text-xs font-medium {'text-gray-500 line-through' if t.is_done else 'text-gray-100'} mb-1")
                                 if t.desc:
                                     ui.label(t.desc).classes('text-[10px] text-gray-400 mb-2 line-clamp-2')
+                                if t.body_lines:
+                                    ui.markdown("\n".join(t.body_lines)).classes('text-[10px] text-gray-400 mb-2 pl-1 border-l-2 border-gray-700 overflow-hidden line-clamp-3')
                                 if t.blocked:
                                     ui.label(f"🛑 {t.blocked}").classes('text-[10px] text-red-400 font-semibold mb-1')
 
@@ -693,10 +797,52 @@ class WebTPM:
                                             ui.button(icon='chevron_left', on_click=lambda _, task=t: self.move_kanban_status(task, -1)).props('flat dense size=xs color=gray @click.stop').tooltip('Move Left')
                                         
                                         ui.button(icon='auto_fix_high', on_click=lambda _, task=t: self.open_task_breakdown_dialog(task)).props('flat dense size=xs color=purple @click.stop').tooltip('✨ Break Down')
-                                        ui.button(icon='edit', on_click=lambda _, task=t: self.open_task_details(task)).props('flat dense size=xs color=gray @click.stop').tooltip('Edit Task')
                                         
                                         if col_id != "done":
                                             ui.button(icon='chevron_right', on_click=lambda _, task=t: self.move_kanban_status(task, 1)).props('flat dense size=xs color=gray @click.stop').tooltip('Move Right')
+
+    def render_timeline_view(self, tasks: List[Task]):
+        if not tasks:
+            ui.label('No tasks to show.').classes('text-gray-500 italic p-4')
+            return
+            
+        gantt_lines = ["%%{init: {'theme': 'dark', 'themeVariables': {'textColor': '#e5e7eb', 'primaryTextColor': '#e5e7eb', 'titleColor': '#ffffff'}}}%%", "gantt", "    title Project Timeline", "    dateFormat YYYY-MM-DD", "    axisFormat %m/%d"]
+        gantt_lines.append("    section Tasks")
+        
+        has_due = False
+        for t in tasks:
+            if not t.due:
+                continue
+            has_due = True
+            status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
+            clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '')
+            gantt_lines.append(f"    {clean_name} : {status_str}{t.id}, {t.due}, 1d")
+            
+        if not has_due:
+            ui.label('No tasks with a due date (@YYYY-MM-DD) found.').classes('text-gray-500 italic p-4')
+            return
+            
+        mermaid_code = "\n".join(gantt_lines)
+        with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
+            ui.mermaid(mermaid_code).classes('w-full')
+
+    def render_raw_view(self):
+        p = self.get_active_project()
+        if not p or not p.path or not p.path.exists():
+            ui.label('No notes.md available.').classes('text-gray-500 p-4')
+            return
+            
+        content = p.path.read_text(encoding='utf-8', errors='ignore')
+        
+        async def _save():
+            ProjectService.atomic_write(p.path, raw_input.value)
+            ui.notify('Raw notes saved!', type='positive')
+            self.refresh_portfolio()
+            self.render_tasks_container.refresh()
+            
+        with ui.column().classes('w-full h-full gap-2 p-2'):
+            raw_input = ui.textarea(value=content).classes('w-full font-mono text-sm').props('outlined dark rows=35')
+            ui.button('Save Notes', on_click=_save).props('color=blue')
 
     # --- DIALOGS ---
 
@@ -748,15 +894,16 @@ class WebTPM:
                     ui.button('✨ AI Refactor', icon='edit_note', on_click=lambda: self.run_ai_tool('Refactor Task', f'Refactor this task to be more clear, actionable, and formatted correctly. Retain all metadata tags:\\n\\n{task.raw_text}')).props('flat dense color=blue')
 
             with ui.column().classes('w-full flex-grow gap-4'):
-                desc_title = ui.input('Title', value=task.clean_text).classes('w-full').props('outlined dark')
-                desc_long = ui.textarea('Description / Context', value=task.desc).classes('w-full flex-grow').props('outlined dark')
+                desc_input = ui.input('Title', value=task.clean_text).classes('w-full').props('outlined dark')
+                desc_long = ui.textarea('Inline Description / Context', value=task.desc).classes('w-full').props('outlined dark')
+                body_input = ui.textarea('Multi-line Body (Markdown)', value="\n".join(task.body_lines or [])).classes('w-full flex-grow').props('outlined dark')
                 
                 with ui.row().classes('w-full gap-4'):
                     block = ui.input('Blocker Tag (#blocked: ...)', value=task.blocked or '').classes('w-1/2').props('outlined dark dense')
                     dep = ui.input('Dependency Tag (#dep: ...)', value=task.dep or '').classes('w-1/2').props('outlined dark dense')
                 
                 with ui.row().classes('w-full gap-4 items-center'):
-                    status_sel = ui.select(
+                    status_select = ui.select(
                         {'todo': 'To Do', 'in_progress': 'In Progress (#in_progress)', 'blocked': 'Blocked (#blocked)', 'done': 'Completed [x]'},
                         value=task.kanban_status,
                         label='Status'
@@ -771,27 +918,30 @@ class WebTPM:
 
             with ui.row().classes('w-full justify-between mt-4 pt-3 border-t border-gray-800'):
                 with ui.row().classes('gap-2'):
-                    ui.button('Delete Task', on_click=lambda: self.delete_task(task.line_idx) or dialog.submit(None)).props('flat color=red')
-                    ui.button('Archive Task', on_click=lambda: self.archive_task(task.line_idx) or dialog.submit(None)).props('flat color=orange')
-                ui.button('Save Changes', on_click=lambda: dialog.submit('save')).props('color=blue px-6')
+                    ui.button('Delete Task', on_click=lambda: self.delete_task(task, dialog)).props('flat color=red')
+                    ui.button('Archive Task', on_click=lambda: self.archive_task(task) or dialog.submit(None)).props('flat color=orange')
+                ui.button('Close', on_click=lambda: dialog.submit('close')).props('flat color=gray px-6')
 
-        if await dialog == 'save':
-            sel_status = status_sel.value
-            is_done = (sel_status == 'done')
-            updated_task = Task(
-                id=task.id,
-                line_idx=task.line_idx,
-                clean_text=desc_title.value.strip(),
-                raw_text="",
-                is_done=is_done,
-                prio=prio_sel.value,
-                blocked=block.value.strip() or None,
-                dep=dep.value.strip() or None,
-                desc=desc_long.value.strip(),
-                due=date_in.value.strip() or None,
-                status_override=sel_status
-            )
-            self.update_task_line(task.line_idx, updated_task.to_markdown_line())
+        await dialog
+        # Auto-save when dialog closes (either by clicking Close, or clicking outside)
+        sel_status = status_select.value
+        is_done = (sel_status == 'done')
+        updated_task = Task(
+            id=task.id,
+            line_start=task.line_start,
+            line_end=task.line_end,
+            clean_text=desc_input.value.strip(),
+            raw_text="",
+            is_done=is_done,
+            prio=prio_sel.value,
+            blocked=block.value.strip() or None,
+            dep=dep.value.strip() or None,
+            desc=desc_long.value.strip(),
+            due=date_in.value.strip() or None,
+            status_override=status_select.value,
+            body_lines=body_input.value.strip().splitlines() if body_input.value.strip() else None
+        )
+        self.update_task_block(task, updated_task.to_markdown_line())
 
     def open_chat_dialog(self):
         with ui.dialog() as dialog, ui.card().classes('w-[96vw] max-w-none h-[92vh] bg-gray-900 border border-gray-700 flex flex-col p-6'):
@@ -879,7 +1029,8 @@ class WebTPM:
         return await dialog or ""
 
     def setup_ui(self):
-        ui.dark_mode().enable()
+        self.dark_mode = ui.dark_mode()
+        self.dark_mode.enable()
         ui.add_head_html(f'<style>{CUSTOM_CSS}</style>')
 
         # Register Cmd+K / Ctrl+K keyboard shortcut to focus search
@@ -900,7 +1051,8 @@ class WebTPM:
             with ui.row().classes('items-center justify-center gap-1.5 grow'):
                 for tool, prmt in [
                     ('EXECUTIVE', 'ROI and Business Impact:\n{notes}'),
-                    ('HEALTH', 'Project Health, Blockers, Velocity Analysis, and Risks/Vulnerabilities:\n{notes}')
+                    ('TRIAGE', 'Analyze the project notes below. Identify stale tasks, assess blocker severity, and output a structured Project Risk Report. Suggest priority adjustments:\n{all_notes}'),
+                    ('GROOM', 'Act as an expert TPM. Review ONLY the tasks in the "TO DO" section (tasks that are not marked as completed, blocked, or in-progress). Group related TO DO tasks and move all #p1 or critical dependency (#dep) tasks to the top of the list. Output the reorganized list:\n{notes}')
                 ]:
                     ui.button(tool, on_click=lambda t=tool, p=prmt: self.run_ai_tool(t.title(), p, input_req=False)).props('flat color=blue dense').classes('text-xs font-bold px-2')
 
@@ -908,7 +1060,7 @@ class WebTPM:
                 ui.button(icon='settings', on_click=self.open_config_dialog).props('flat color=gray dense').classes('px-2').tooltip('Settings & API Keys')
 
             with ui.row().classes('items-center justify-end gap-2 shrink-0'):
-                with ui.column().classes('items-end gap-0 w-72'):
+                with ui.column().classes('items-end gap-0 w-[450px]'):
                     self.render_header_status()
                     self.render_logs()
 
