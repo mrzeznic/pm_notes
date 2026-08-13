@@ -13,6 +13,7 @@ from services.ai_engine import AIEngine
 from services.markdown_parser import MarkdownParser
 from services.project_service import ProjectService
 from services.project_watcher import ProjectWatcher
+from services.semantic_search import SemanticSearch
 from ui.styles import CUSTOM_CSS, get_project_color
 
 class WebTPM:
@@ -29,6 +30,7 @@ class WebTPM:
         self.view_mode = 'kanban'  # 'list', 'kanban', 'timeline', 'raw'
         self.search_query = ""
         self.global_search = False
+        self.semantic_mode = False
         self.filter_type = "all"  # "all", "p1", "in_progress", "blocked", "overdue"
         
         self.insights_content = ""
@@ -43,6 +45,9 @@ class WebTPM:
         self.ai_cache = {}
         self.show_archived_p = False
         self.show_archived_t = False
+        
+        # Semantic Search Initialization
+        self.semantic_search = SemanticSearch()
         
         # Connect logger to UI refresh
         AILogger.ui_refresh_callback = self._safe_refresh_logs
@@ -104,12 +109,24 @@ class WebTPM:
             except Exception as e:
                 AILogger.log(f"Error parsing tasks for {proj.name}: {e}", "error")
         
-        # Apply Search and Tag Filters
+        # Apply Semantic Search or Keyword Search
         filtered = []
         q = self.search_query.lower().strip()
+        
+        semantic_match_ids = []
+        if q and getattr(self, 'semantic_mode', False):
+            # Also ensure all current tasks are indexed before searching
+            self.semantic_search.index_tasks(raw_tasks)
+            semantic_match_ids = self.semantic_search.search(q)
+            
         for t in raw_tasks:
-            if q and (q not in t.clean_text.lower() and q not in t.desc.lower() and q not in (t.blocked or "").lower() and q not in (t.dep or "").lower()):
-                continue
+            if q:
+                if self.semantic_mode:
+                    if t.id not in semantic_match_ids:
+                        continue
+                else:
+                    if (q not in t.clean_text.lower() and q not in t.desc.lower() and q not in (t.blocked or "").lower() and q not in (t.dep or "").lower()):
+                        continue
             if self.filter_type == "p1" and t.prio != 1:
                 continue
             if self.filter_type == "in_progress" and t.kanban_status != "in_progress":
@@ -639,6 +656,7 @@ class WebTPM:
                             ui.button('List', icon='format_list_bulleted', on_click=lambda: self.set_view_mode('list')).props(f"{'color=blue' if self.view_mode == 'list' else 'flat color=gray'} dense size=sm")
                             ui.button('Kanban', icon='view_kanban', on_click=lambda: self.set_view_mode('kanban')).props(f"{'color=blue' if self.view_mode == 'kanban' else 'flat color=gray'} dense size=sm")
                             ui.button('Timeline', icon='timeline', on_click=lambda: self.set_view_mode('timeline')).props(f"{'color=blue' if self.view_mode == 'timeline' else 'flat color=gray'} dense size=sm")
+                            ui.button('Analytics', icon='insights', on_click=lambda: self.set_view_mode('analytics')).props(f"{'color=blue' if self.view_mode == 'analytics' else 'flat color=gray'} dense size=sm")
                             ui.button('Raw', icon='code', on_click=lambda: self.set_view_mode('raw')).props(f"{'color=blue' if self.view_mode == 'raw' else 'flat color=gray'} dense size=sm")
                         ui.badge(f"{len(tasks)} items", color='blue-9').classes('text-[10px]')
 
@@ -657,6 +675,7 @@ class WebTPM:
                 # Toggles & Search Input
                 with ui.row().classes('items-center gap-3'):
                     with ui.row().classes('items-center gap-2'):
+                        ui.checkbox('Semantic 🧠', value=self.semantic_mode).bind_value(self, 'semantic_mode').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-purple-400')
                         ui.checkbox('Show Archived', value=self.show_archived_t).bind_value(self, 'show_archived_t').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-gray-400')
                     self.search_in = ui.input(placeholder='Search tasks (Cmd+K)...', value=self.search_query).on('update:model-value', lambda e: self.update_search(e.args)).classes('w-64 text-sm').props('outlined dark dense rounded')
 
@@ -673,6 +692,8 @@ class WebTPM:
                     self.render_kanban_view(tasks)
                 elif self.view_mode == 'timeline':
                     self.render_timeline_view(tasks)
+                elif self.view_mode == 'analytics':
+                    self.render_analytics_view(tasks)
                 elif self.view_mode == 'raw':
                     self.render_raw_view()
 
@@ -808,6 +829,74 @@ class WebTPM:
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
             ui.mermaid(mermaid_code).classes('w-full')
+
+    def render_analytics_view(self, tasks: List[Task]):
+        with ui.element('div').classes('list-area col w-full p-4 overflow-y-auto'):
+            if not tasks:
+                with ui.column().classes('w-full h-64 items-center justify-center text-gray-500'):
+                    ui.icon('insights', size='48px').classes('opacity-30 mb-2')
+                    ui.label('No tasks available for analytics.').classes('text-sm')
+                return
+                
+            # Aggregate data
+            status_counts = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
+            prio_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+            for t in tasks:
+                status_counts[t.kanban_status] += 1
+                prio_counts[t.prio] += 1
+                
+            with ui.row().classes('w-full gap-4'):
+                # Project Health Donut Chart
+                with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
+                    ui.label('Project Health').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
+                    ui.echarts({
+                        'tooltip': {'trigger': 'item'},
+                        'legend': {'top': '5%', 'left': 'center', 'textStyle': {'color': '#8b949e'}},
+                        'series': [
+                            {
+                                'name': 'Tasks',
+                                'type': 'pie',
+                                'radius': ['40%', '70%'],
+                                'avoidLabelOverlap': False,
+                                'itemStyle': {
+                                    'borderRadius': 10,
+                                    'borderColor': '#11161f',
+                                    'borderWidth': 2
+                                },
+                                'label': {'show': False, 'position': 'center'},
+                                'labelLine': {'show': False},
+                                'data': [
+                                    {'value': status_counts['done'], 'name': 'Done', 'itemStyle': {'color': '#2ea043'}},
+                                    {'value': status_counts['in_progress'], 'name': 'In Progress', 'itemStyle': {'color': '#3b82f6'}},
+                                    {'value': status_counts['blocked'], 'name': 'Blocked', 'itemStyle': {'color': '#f85149'}},
+                                    {'value': status_counts['todo'], 'name': 'To Do', 'itemStyle': {'color': '#6e7681'}}
+                                ]
+                            }
+                        ]
+                    }).classes('h-64')
+
+                # Priority Distribution Bar Chart
+                with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
+                    ui.label('Priority Backlog').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
+                    ui.echarts({
+                        'tooltip': {'trigger': 'axis'},
+                        'xAxis': {
+                            'type': 'category', 
+                            'data': ['P1 (High)', 'P2 (Med)', 'P3 (Low)', 'Unprioritized'],
+                            'axisLabel': {'color': '#8b949e'}
+                        },
+                        'yAxis': {'type': 'value', 'splitLine': {'lineStyle': {'color': '#21262d'}}, 'axisLabel': {'color': '#8b949e'}},
+                        'series': [{
+                            'data': [
+                                {'value': prio_counts[1], 'itemStyle': {'color': '#dc2626'}},
+                                {'value': prio_counts[2], 'itemStyle': {'color': '#eab308'}},
+                                {'value': prio_counts[3], 'itemStyle': {'color': '#16a34a'}},
+                                {'value': prio_counts[4], 'itemStyle': {'color': '#4b5563'}}
+                            ],
+                            'type': 'bar',
+                            'barWidth': '40%'
+                        }]
+                    }).classes('h-64')
 
     def render_raw_view(self):
         p = self.get_active_project()
