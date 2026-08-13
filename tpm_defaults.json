@@ -1,0 +1,20 @@
+{
+    "PROJECTS_ROOT": "projects",
+    "LOCAL_MODEL": "qwen2.5:7b",
+    "OLLAMA_BASE_URL": "http://localhost:11434",
+    "CLOUD_MODEL": "gpt-4o",
+    "GITHUB_MODELS_BASE_URL": "https://models.inference.ai.azure.com",
+    "GITHUB_TOKEN": "",
+    "GLOBAL_MODEL_CMD": "gh copilot chat -p",
+    "WIP_LIMIT": 5,
+    "MODEL_PREFS": {
+        "Summary": "local",
+        "Chat": "cloud",
+        "Daily Roadmap": "cloud",
+        "Refactor Notes": "cloud",
+        "Executive": "cloud",
+        "Tech Plan": "cloud",
+        "Health": "local",
+        "Risks": "local"
+    }
+}

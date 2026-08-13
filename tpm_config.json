@@ -1,0 +1,20 @@
+{
+    "PROJECTS_ROOT": "/Users/morton/git/pm_notes/projects",
+    "LOCAL_MODEL": "phi4",
+    "OLLAMA_BASE_URL": "http://localhost:11434",
+    "CLOUD_MODEL": "gpt-4o",
+    "GITHUB_MODELS_BASE_URL": "https://models.inference.ai.azure.com",
+    "GITHUB_TOKEN": "",
+    "GLOBAL_MODEL_CMD": "gh copilot chat -p",
+    "WIP_LIMIT": 5,
+    "MODEL_PREFS": {
+        "Summary": "local",
+        "Chat": "local",
+        "Daily Roadmap": "local",
+        "Refactor Notes": "local",
+        "Executive": "local",
+        "Tech Plan": "local",
+        "Health": "local",
+        "Risks": "local"
+    }
+}
