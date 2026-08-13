@@ -675,8 +675,8 @@ class WebTPM:
                 # Toggles & Search Input
                 with ui.row().classes('items-center gap-3'):
                     with ui.row().classes('items-center gap-2'):
-                        ui.checkbox('Semantic 🧠', value=self.semantic_mode).bind_value(self, 'semantic_mode').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-purple-400')
                         ui.checkbox('Show Archived', value=self.show_archived_t).bind_value(self, 'show_archived_t').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-gray-400')
+                        ui.checkbox('Semantic Search', value=self.semantic_mode).bind_value(self, 'semantic_mode').on('update:model-value', self.render_tasks_container.refresh).classes('text-[10px] text-purple-400')
                     self.search_in = ui.input(placeholder='Search tasks (Cmd+K)...', value=self.search_query).on('update:model-value', lambda e: self.update_search(e.args)).classes('w-64 text-sm').props('outlined dark dense rounded')
 
             # HEADER ROW 2: ADD TASK ONLY
