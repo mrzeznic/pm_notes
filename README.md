@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # TPM Enterprise Command Center 🚀
 
 A high-velocity, markdown-driven Technical Project Management mission control dashboard built with **Python**, **NiceGUI**, and a **Hybrid AI Engine** (supporting **GitHub Copilot / Models API** and **Local Ollama LLMs**).
@@ -83,3 +84,7 @@ In each `notes.md` file:
 * **Blockers & Dependencies**: `#blocked: Reason` / `#dep: Dependency`
 * **Description**: Trailing text in parentheses `(Description...)`
 * **Sections**: `## Tasks`, `## PROJECT SUMMARY`, `## ARCHIVE`
+=======
+# pm_notes
+LLM supported PM helper
+>>>>>>> 1f316b48bb7e6e7ff08a1da743c87d2c2c36a215

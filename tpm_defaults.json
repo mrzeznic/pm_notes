@@ -1,5 +1,6 @@
 {
     "PROJECTS_ROOT": "projects",
+<<<<<<< HEAD
     "LOCAL_MODEL": "qwen2.5:7b",
     "OLLAMA_BASE_URL": "http://localhost:11434",
     "CLOUD_MODEL": "gpt-4o",
@@ -12,6 +13,16 @@
         "Chat": "cloud",
         "Daily Roadmap": "cloud",
         "Refactor Notes": "cloud",
+=======
+    "GLOBAL_MODEL_CMD": "gh copilot chat -p",
+    "LOCAL_MODEL": "qwen2.5:7b",
+    "WIP_LIMIT": 8,
+    "MODEL_PREFS": {
+        "Summary": "local",
+        "Chat": "local",
+        "Daily Roadmap": "local",
+        "Refactor Notes": "local",
+>>>>>>> 1f316b48bb7e6e7ff08a1da743c87d2c2c36a215
         "Executive": "cloud",
         "Tech Plan": "cloud",
         "Health": "local",
