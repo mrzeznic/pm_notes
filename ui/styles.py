@@ -137,3 +137,9 @@ nicegui-refreshable {
     padding-left: 9px;
 }
 """
+
+def get_project_color(project_name: str) -> str:
+    colors = ['red-8', 'pink-8', 'purple-8', 'deep-purple-8', 'indigo-8', 'blue-8', 'cyan-8', 'teal-8', 'green-8', 'orange-8', 'deep-orange-8']
+    idx = sum(ord(c) for c in project_name) % len(colors)
+    return colors[idx]
+

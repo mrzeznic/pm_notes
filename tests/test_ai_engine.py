@@ -31,3 +31,28 @@ async def test_decompose_task(mocker):
     assert "- [ ] Task 1 #p1" in tasks[0]
     assert "- [ ] Task 2 #p2" in tasks[1]
     assert "Some description" in tasks[1]
+
+def test_filter_private_project_level():
+    content = """# My Project
+## Summary
+#private
+Some secret stuff
+## Tasks
+- [ ] Regular task
+"""
+    filtered = AIEngine.filter_private_content(content)
+    assert filtered == ""
+
+def test_filter_private_task_level():
+    content = """# My Project
+## Tasks
+- [ ] Safe task
+- [ ] Secret task #private
+  Some secret description
+- [ ] Another safe task
+"""
+    filtered = AIEngine.filter_private_content(content)
+    assert "Safe task" in filtered
+    assert "Another safe task" in filtered
+    assert "Secret task" not in filtered
+    assert "Some secret description" not in filtered

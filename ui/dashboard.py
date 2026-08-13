@@ -13,7 +13,7 @@ from services.ai_engine import AIEngine
 from services.markdown_parser import MarkdownParser
 from services.project_service import ProjectService
 from services.project_watcher import ProjectWatcher
-from ui.styles import CUSTOM_CSS
+from ui.styles import CUSTOM_CSS, get_project_color
 
 class WebTPM:
     def __init__(self):
@@ -381,32 +381,18 @@ class WebTPM:
             self.processing_status = f"Running {name}..."
             await self.render_header_status.refresh()
 
-            def filter_private_content(content: str) -> str:
-                lines = content.splitlines()
-                # Check project-level #private in the first 15 lines
-                for i in range(min(15, len(lines))):
-                    if "#private" in lines[i]:
-                        return ""
-                
-                # Filter out private tasks
-                tasks = MarkdownParser.parse_tasks(content)
-                private_tasks = [t for t in tasks if "#private" in t.raw_text]
-                for t in sorted(private_tasks, key=lambda x: x.line_start, reverse=True):
-                    del lines[t.line_start:t.line_end]
-                return "\n".join(lines)
-
             # Aggregate all notes if template requires it
             all_notes_text = ""
             if "{all_notes}" in template:
                 for pr in self.projects:
                     if pr.path and pr.path.exists():
                         pr_content = pr.path.read_text(encoding='utf-8', errors='ignore')
-                        filtered_pr = filter_private_content(pr_content)
+                        filtered_pr = AIEngine.filter_private_content(pr_content)
                         if filtered_pr.strip():
                             all_notes_text += f"\n--- PROJECT: {pr.name} ---\n{filtered_pr}\n"
 
             proj_content = project.path.read_text(encoding='utf-8', errors='ignore') if project.path and project.path.exists() else ""
-            filtered_proj_content = filter_private_content(proj_content)
+            filtered_proj_content = AIEngine.filter_private_content(proj_content)
 
             p_text = template.format(
                 project=project.name,
@@ -702,10 +688,7 @@ class WebTPM:
         self.search_query = str(val or "")
         self.render_tasks_container.refresh()
 
-    def get_project_color(self, project_name: str) -> str:
-        colors = ['red-8', 'pink-8', 'purple-8', 'deep-purple-8', 'indigo-8', 'blue-8', 'cyan-8', 'teal-8', 'green-8', 'orange-8', 'deep-orange-8']
-        idx = sum(ord(c) for c in project_name) % len(colors)
-        return colors[idx]
+
 
     def render_list_view(self, tasks: List[Task]):
         with ui.element('div').classes('list-area col column w-full pb-10'):
@@ -732,7 +715,7 @@ class WebTPM:
 
                             if self.global_search and t.project_path:
                                 pname = t.project_path.parent.name
-                                ui.badge(pname, color=self.get_project_color(pname)).classes('text-[9px]')
+                                ui.badge(pname, color=get_project_color(pname)).classes('text-[9px]')
 
                             with ui.column().classes('gap-0 flex-grow overflow-hidden'):
                                 ui.markdown(t.clean_text).classes(f"{'text-gray-500 line-through' if t.is_done else 'text-gray-100'} text-sm truncate")
@@ -781,7 +764,7 @@ class WebTPM:
                                         ui.label(f'📅 {t.due}').classes(f"text-[9px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
                                     if self.global_search and t.project_path:
                                         pname = t.project_path.parent.name
-                                        ui.badge(pname, color=self.get_project_color(pname)).classes('text-[8px]')
+                                        ui.badge(pname, color=get_project_color(pname)).classes('text-[8px]')
 
                                 ui.label(t.clean_text).classes(f"text-xs font-medium {'text-gray-500 line-through' if t.is_done else 'text-gray-100'} mb-1")
                                 if t.desc:

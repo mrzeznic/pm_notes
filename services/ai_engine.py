@@ -245,4 +245,20 @@ class AIEngine:
             f"- Explicit blockers (#blocked) or dependency risks (#dep)\n\n"
             f"Be concise, technical, and high-impact."
         )
-        return await cls.run_prompt(prompt, "Chat", config)
+    @staticmethod
+    def filter_private_content(content: str) -> str:
+        """Removes #private tasks and project-level context."""
+        lines = content.splitlines()
+        # Check project-level #private in the first 15 lines (ignore task lines)
+        for i in range(min(15, len(lines))):
+            line = lines[i].strip()
+            if "#private" in line and not line.startswith("- ["):
+                return ""
+        
+        # Filter out private tasks (using MarkdownParser)
+        from services.markdown_parser import MarkdownParser
+        tasks = MarkdownParser.parse_tasks(content)
+        private_tasks = [t for t in tasks if "#private" in t.raw_text]
+        for t in sorted(private_tasks, key=lambda x: x.line_start, reverse=True):
+            del lines[t.line_start:t.line_end]
+        return "\n".join(lines)
