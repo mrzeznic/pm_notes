@@ -43,3 +43,60 @@ def test_archive_project(tmp_path):
     assert archive_dir.exists()
     assert (archive_dir / "notes.md").exists()
     assert not proj_dir.exists()
+
+def test_scan_projects_discovery(tmp_path):
+    root = tmp_path / "projects"
+    root.mkdir()
+    
+    # Valid active project
+    proj_a = root / "ProjA"
+    proj_a.mkdir()
+    (proj_a / "notes.md").write_text("- [ ] Task 1\n- [ ] Task 2\n")
+    
+    # Project missing notes (should auto-create)
+    proj_b = root / "ProjB"
+    proj_b.mkdir()
+    
+    # Hidden folder (should be ignored)
+    proj_hidden = root / ".Hidden"
+    proj_hidden.mkdir()
+    
+    active, archived = ProjectService.scan_projects(root, show_archived=False)
+    
+    assert len(active) == 2
+    assert len(archived) == 0
+    
+    names = [p.name for p in active]
+    assert "ProjA" in names
+    assert "ProjB" in names
+    assert ".Hidden" not in names
+    
+    # Check stats for ProjA
+    pa = next(p for p in active if p.name == "ProjA")
+    assert pa.todos == 2
+    assert pa.progress == 0.0
+    
+    # Check that notes.md was created for ProjB
+    pb = next(p for p in active if p.name == "ProjB")
+    assert pb.path.exists()
+
+def test_scan_projects_archived(tmp_path):
+    root = tmp_path / "projects"
+    root.mkdir()
+    
+    # Active project
+    proj_a = root / "ProjA"
+    proj_a.mkdir()
+    
+    # Archived project
+    archive_dir = root / "_Archive_2026" / "ProjOld"
+    archive_dir.mkdir(parents=True)
+    (archive_dir / "notes.md").write_text("- [x] Done Task")
+    
+    # Scan with show_archived=True
+    active, archived = ProjectService.scan_projects(root, show_archived=True)
+    
+    assert len(active) == 1
+    assert len(archived) == 1
+    assert archived[0].name == "ProjOld"
+    assert archived[0].is_archived is True

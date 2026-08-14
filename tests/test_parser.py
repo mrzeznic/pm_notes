@@ -91,3 +91,47 @@ def test_insert_subtasks():
     assert lines[2] == "- [ ] Sub 1"
     assert lines[3] == "- [ ] Sub 2"
     assert lines[4] == "- [ ] Other task"
+
+def test_generate_dependency_mermaid():
+    tasks = [
+        Task(
+            id="T0", line_start=1, line_end=1,
+            clean_text='Implement "Login" UI',
+            raw_text='- [ ] Implement "Login" UI #blocked: Design pending',
+            is_done=False,
+            blocked="Design pending"
+        ),
+        Task(
+            id="T1", line_start=2, line_end=2,
+            clean_text="Setup Auth Service",
+            raw_text="- [ ] Setup Auth Service #dep: T0",
+            is_done=False,
+            dep="T0"
+        ),
+        Task(
+            id="T2", line_start=3, line_end=3,
+            clean_text="Database Migration",
+            raw_text="- [x] Database Migration",
+            is_done=True
+        )
+    ]
+    
+    mermaid_str = MarkdownParser.generate_dependency_mermaid(tasks)
+    
+    # Check diagram type
+    assert "graph LR" in mermaid_str
+    
+    # Check node sanitization and creation
+    assert 'T0["Implement \'Login\' UI"]' in mermaid_str  # quotes should be escaped to single quotes
+    
+    # Check classes
+    assert 'class T0 blockedNode' in mermaid_str
+    assert 'class T2 doneNode' in mermaid_str
+    
+    # Check edges
+    assert 'T0 -.->|Blocked by| B0' in mermaid_str
+    assert 'B0{"🛑 Design pending"}' in mermaid_str
+    
+    assert 'T1 -->|Depends on| D1' in mermaid_str
+    assert 'D1(["🔗 T0"])' in mermaid_str
+    assert 'class D1 depNode' in mermaid_str

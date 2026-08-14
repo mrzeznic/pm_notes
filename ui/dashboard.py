@@ -736,10 +736,10 @@ class WebTPM:
 
                             if self.global_search and t.project_path:
                                 pname = t.project_path.parent.name
-                                ui.badge(pname, color=get_project_color(pname)).classes('text-[9px]')
+                                ui.badge(pname, color=get_project_color(pname)).classes('text-[11px] font-bold px-1.5 py-0.5')
 
                             with ui.column().classes('gap-0 flex-grow overflow-hidden'):
-                                ui.markdown(t.clean_text).classes(f"{'text-gray-500 line-through' if t.is_done else 'text-gray-100'} text-sm truncate")
+                                ui.markdown(t.clean_text).classes(f"{'text-gray-500 line-through' if t.is_done else 'text-gray-100'} text-[15px] font-bold truncate")
                                 if t.desc:
                                     ui.label(t.desc).classes('text-[11px] text-gray-400 truncate')
                                 if t.body_lines:
@@ -785,9 +785,9 @@ class WebTPM:
                                         ui.label(f'📅 {t.due}').classes(f"text-[9px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
                                     if self.global_search and t.project_path:
                                         pname = t.project_path.parent.name
-                                        ui.badge(pname, color=get_project_color(pname)).classes('text-[8px]')
+                                        ui.badge(pname, color=get_project_color(pname)).classes('text-[10px] font-bold px-1.5 py-0.5')
 
-                                ui.label(t.clean_text).classes(f"text-xs font-medium {'text-gray-500 line-through' if t.is_done else 'text-gray-100'} mb-1")
+                                ui.label(t.clean_text).classes(f"text-sm font-bold {'text-gray-500 line-through' if t.is_done else 'text-white'} mb-1 leading-tight")
                                 if t.desc:
                                     ui.label(t.desc).classes('text-[10px] text-gray-400 mb-2 line-clamp-2')
                                 if t.body_lines:

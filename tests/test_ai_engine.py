@@ -56,3 +56,48 @@ def test_filter_private_task_level():
     assert "Another safe task" in filtered
     assert "Secret task" not in filtered
     assert "Some secret description" not in filtered
+
+@pytest.mark.asyncio
+async def test_run_copilot_http_success(mocker):
+    config = {"GITHUB_TOKEN": "dummy_token"}
+    
+    # Mock AsyncOpenAI if it's used
+    mock_openai = mocker.patch('services.ai_engine.AsyncOpenAI')
+    mock_client = mock_openai.return_value
+    
+    # AsyncMock for the awaited method
+    mock_create = mocker.AsyncMock()
+    mock_create.return_value.choices = [
+        mocker.Mock(message=mocker.Mock(content="Cloud response"))
+    ]
+    mock_client.chat.completions.create = mock_create
+    
+    # Also mock HTTP response just in case AsyncOpenAI is None
+    mocker.patch.object(
+        AIEngine, '_http_post_json',
+        return_value=(200, '{"choices": [{"message": {"content": "Cloud response"}}]}')
+    )
+    
+    result = await AIEngine.run_copilot("Prompt", config)
+    assert result == "Cloud response"
+
+@pytest.mark.asyncio
+async def test_run_copilot_cli_fallback(mocker):
+    config = {"GITHUB_TOKEN": "dummy_token", "GLOBAL_MODEL_CMD": "echo 'CLI fallback'"}
+    
+    # Mock AsyncOpenAI to raise Exception
+    mock_openai = mocker.patch('services.ai_engine.AsyncOpenAI')
+    mock_client = mock_openai.return_value
+    
+    mock_create = mocker.AsyncMock()
+    mock_create.side_effect = Exception("API Error")
+    mock_client.chat.completions.create = mock_create
+    
+    # Mock HTTP response to fail
+    mocker.patch.object(
+        AIEngine, '_http_post_json',
+        return_value=(500, 'Internal Server Error')
+    )
+    
+    result = await AIEngine.run_copilot("Prompt", config)
+    assert "CLI fallback" in result

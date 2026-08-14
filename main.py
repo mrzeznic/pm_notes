@@ -28,7 +28,7 @@ def main():
             port=8080,
             host='127.0.0.1',
             dark=True,
-            reload=False,
+            reload=True,
             show=False
         )
     except Exception as e:
