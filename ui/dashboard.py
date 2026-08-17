@@ -778,8 +778,10 @@ class WebTPM:
                         with ui.column().classes('gap-1'):
                             ui.button(icon='expand_less', on_click=lambda _, task=t: self.move_task(task, -1)).props('flat dense size=xs color=gray @click.stop')
                             ui.button(icon='expand_more', on_click=lambda _, task=t: self.move_task(task, 1)).props('flat dense size=xs color=gray @click.stop')
-                            if t.due:
-                                ui.label(f'📅 {t.due}').classes(f"text-[10px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
+                            if t.created or t.due:
+                                date_str = f"^{t.created} " if t.created else ""
+                                date_str += f"@{t.due}" if t.due else ""
+                                ui.label(f'📅 {date_str.strip()}').classes(f"text-[10px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
                             if t.blocked:
                                 ui.icon('block', size='16px').classes('text-red-500').tooltip(f"Blocked by: {t.blocked}")
                             if t.dep:
@@ -811,8 +813,10 @@ class WebTPM:
                                         ui.label(f'#p{t.prio}').classes(f'text-[8px] px-1 py-0.5 rounded font-black {colors[t.prio]}')
                                     else:
                                         ui.label('')
-                                    if t.due:
-                                        ui.label(f'📅 {t.due}').classes(f"text-[9px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
+                                    if t.created or t.due:
+                                        date_str = f"^{t.created} " if t.created else ""
+                                        date_str += f"@{t.due}" if t.due else ""
+                                        ui.label(f'📅 {date_str.strip()}').classes(f"text-[9px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
                                     if self.global_search and t.project_path:
                                         pname = t.project_path.parent.name
                                         ui.badge(pname, color=get_project_color(pname)).classes('text-[10px] font-bold px-1.5 py-0.5')
@@ -834,6 +838,11 @@ class WebTPM:
                                         
                                         if col_id != "done":
                                             ui.button(icon='chevron_right', on_click=lambda _, task=t: self.move_kanban_status(task, 1)).props('flat dense size=xs color=gray @click.stop').tooltip('Move Right')
+
+    def get_project_color_hex(self, project_name: str) -> str:
+        colors = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0', '#00838f', '#00695c', '#2e7d32', '#ef6c00', '#d84315']
+        idx = sum(ord(c) for c in project_name) % len(colors)
+        return colors[idx]
 
     def render_timeline_view(self, tasks: List[Task]):
         if not tasks:
@@ -858,8 +867,11 @@ class WebTPM:
             ui.label('No tasks with a due date (@YYYY-MM-DD) found.').classes('text-gray-500 italic p-4')
             return
             
+        css_rules = []
         for proj_name, p_tasks in tasks_by_proj.items():
             gantt_lines.append(f"    section {proj_name}")
+            hex_color = self.get_project_color_hex(proj_name)
+            
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
                 clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
@@ -867,9 +879,14 @@ class WebTPM:
                     gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
                 else:
                     gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
+                    
+                css_rules.append(f"rect[id*='id_{t.id}'] {{ fill: {hex_color} !important; stroke: {hex_color} !important; }}")
+                css_rules.append(f"rect[id*='id_{t.id}'] + text, rect[id*='id_{t.id}'] ~ text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
+            if css_rules:
+                ui.html(f"<style>{' '.join(css_rules)}</style>")
             ui.mermaid(mermaid_code).classes('w-full')
 
     def render_analytics_view(self, tasks: List[Task]):
@@ -1035,6 +1052,7 @@ class WebTPM:
                     
                     prio_sel = ui.select({1: 'High (#p1)', 2: 'Medium (#p2)', 3: 'Low (#p3)', 4: 'None'}, value=task.prio, label='Priority').classes('w-44').props('outlined dark dense')
                     
+                with ui.row().classes('w-full gap-4 items-center'):
                     with ui.input('Created Date (^YYYY-MM-DD)', value=task.created or '').classes('w-56').props('outlined dark dense') as date_created_in:
                         with ui.menu() as menu_created:
                             ui.date().bind_value(date_created_in).on('update:model-value', menu_created.close)
