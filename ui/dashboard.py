@@ -854,7 +854,7 @@ class WebTPM:
         # Define classes for colors
         colors = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0', '#00838f', '#00695c', '#2e7d32', '#ef6c00', '#d84315']
         for i, color in enumerate(colors):
-            gantt_lines.append(f"    classDef proj_{i} fill:{color},stroke:{color},color:#ffffff")
+            gantt_lines.append(f"    classDef proj{i} fill:{color},stroke:{color},color:#ffffff")
             
         
         # Group tasks by project
@@ -878,18 +878,17 @@ class WebTPM:
             
             # Generate a consistent index for this project
             idx = sum(ord(c) for c in proj_name) % len(colors)
+            proj_class = f"proj{idx}"
             
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
+                tags_str = f"{proj_class}, {status_str}"
                 
                 clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
                 if t.created and t.due:
-                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
+                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.created}, {t.due}")
                 else:
-                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
-                    
-                # Bind the class to the task ID
-                gantt_lines.append(f"    class id_{t.id} proj_{idx}")
+                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.due}, 1d")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
