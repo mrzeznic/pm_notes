@@ -25,11 +25,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "Summary": "local",
         "Chat": "cloud",
         "Daily Roadmap": "cloud",
+        "Refactor Task": "cloud",
         "Refactor Notes": "cloud",
         "Executive": "cloud",
         "Tech Plan": "cloud",
         "Health": "local",
-        "Risks": "local"
+        "Risks": "local",
+        "Triage": "cloud",
+        "Groom": "cloud"
     }
 }
 

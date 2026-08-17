@@ -1089,7 +1089,7 @@ class WebTPM:
 
                 ui.label('TOOL ENGINE PREFERENCES').classes('text-header-section text-blue-400 mt-2')
                 with ui.grid(columns=2).classes('w-full gap-3'):
-                    for tool in ["Summary", "Daily Roadmap", "Executive", "Health", "Refactor Task"]:
+                    for tool in ["Summary", "Daily Roadmap", "Executive", "Triage", "Groom", "Tech Plan", "Refactor Task", "Chat", "Health", "Risks"]:
                         ui.select(['local', 'cloud'], label=tool, value=self.config["MODEL_PREFS"].get(tool, 'local')).bind_value(self.config["MODEL_PREFS"], tool).props('dense dark outlined')
 
             with ui.row().classes('w-full justify-end gap-3 mt-6 pt-3 border-t border-gray-800'):

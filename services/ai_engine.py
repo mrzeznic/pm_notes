@@ -77,6 +77,8 @@ class AIEngine:
                 "prompt": prompt,
                 "stream": False
             }
+            log_prompt = prompt if len(prompt) < 150 else prompt[:147] + "..."
+            AILogger.log(f"Local AI Request Payload: {log_prompt}", "ai")
             status_code, response_body = await cls._http_post_json(url, payload, timeout=300.0)
             duration = time.time() - start_time
 
@@ -84,6 +86,8 @@ class AIEngine:
                 data = json.loads(response_body)
                 response_text = data.get("response", "").strip()
                 AILogger.log(f"Ollama responded in {duration:.1f}s", "success")
+                log_response = response_text if len(response_text) < 250 else response_text[:247] + "..."
+                AILogger.log(f"Local AI Response: {log_response}", "ai")
                 return clean_ansi(response_text)
             else:
                 AILogger.log(f"Ollama HTTP {status_code}: {response_body[:80]}", "error")
@@ -108,6 +112,8 @@ class AIEngine:
             try:
                 if AsyncOpenAI is not None:
                     client = AsyncOpenAI(base_url=endpoint, api_key=token)
+                    log_prompt = prompt if len(prompt) < 150 else prompt[:147] + "..."
+                    AILogger.log(f"Cloud AI Request Payload: {log_prompt}", "ai")
                     response = await client.chat.completions.create(
                         model=model,
                         messages=[
@@ -120,6 +126,8 @@ class AIEngine:
                     duration = time.time() - start_time
                     content = response.choices[0].message.content or ""
                     AILogger.log(f"Copilot API responded in {duration:.1f}s", "success")
+                    log_response = content.strip() if len(content.strip()) < 250 else content.strip()[:247] + "..."
+                    AILogger.log(f"Cloud AI Response: {log_response}", "ai")
                     return clean_ansi(content.strip())
                 else:
                     chat_url = f"{endpoint.rstrip('/')}/chat/completions"
@@ -135,12 +143,16 @@ class AIEngine:
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json"
                     }
+                    log_prompt = prompt if len(prompt) < 150 else prompt[:147] + "..."
+                    AILogger.log(f"Cloud AI Request Payload: {log_prompt}", "ai")
                     status_code, body = await cls._http_post_json(chat_url, payload, headers=headers, timeout=300.0)
                     duration = time.time() - start_time
                     if status_code == 200:
                         data = json.loads(body)
-                        content = data["choices"][0]["message"]["content"]
+                        content = data["choices"][0]["message"]["content"] or ""
                         AILogger.log(f"Copilot API responded in {duration:.1f}s", "success")
+                        log_response = content.strip() if len(content.strip()) < 250 else content.strip()[:247] + "..."
+                        AILogger.log(f"Cloud AI Response: {log_response}", "ai")
                         return clean_ansi(content.strip())
                     else:
                         AILogger.log(f"Copilot API HTTP {status_code}: {body[:80]}", "warning")
@@ -177,7 +189,16 @@ class AIEngine:
                 duration = time.time() - start_time
                 if process.returncode == 0:
                     AILogger.log(f"Cloud AI CLI responded in {duration:.1f}s", "success")
-                    return clean_ansi(stdout.decode('utf-8', errors='ignore').strip())
+                    stdout_str = stdout.decode('utf-8', errors='ignore').strip()
+                    stderr_str = stderr.decode('utf-8', errors='ignore').strip()
+                    if not stdout_str and stderr_str:
+                        AILogger.log(f"Cloud CLI Note: stdout empty, stderr captured: {stderr_str[:150]}", "warning")
+                    
+                    final_res = stdout_str if stdout_str else stderr_str
+                    log_response = final_res if len(final_res) < 250 else final_res[:247] + "..."
+                    AILogger.log(f"Cloud CLI Response: {log_response}", "ai")
+                    
+                    return clean_ansi(final_res)
                 else:
                     err_str = stderr.decode('utf-8', errors='ignore').strip()
                     AILogger.log(f"Cloud AI CLI failed ({process.returncode}): {err_str[:100]}", "error")
