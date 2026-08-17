@@ -201,7 +201,7 @@ class AIEngine:
         return await cls.run_local(prompt, config)
 
     @classmethod
-    async def decompose_task(cls, task_title: str, task_desc: str, project_name: str, config: Dict[str, Any]) -> List[str]:
+    async def decompose_task(cls, task_title: str, task_desc: str, project_name: str, config: Dict[str, Any], override_mode: Optional[str] = None) -> List[str]:
         """Prompts AI to break a high-level task into 3-5 concrete subtasks with priority tags."""
         prompt = (
             f"Act as a Technical Project Manager. Decompose this complex task for project '{project_name}' into 3 to 5 clear, actionable subtasks.\n\n"
@@ -213,7 +213,7 @@ class AIEngine:
             f"3. You may include multi-line descriptions or nested sub-bullets under each checkbox to provide more context. Our system supports full markdown blocks!\n"
             f"4. Do not include conversational text, headers, or explanations."
         )
-        res = await cls.run_prompt(prompt, "Tech Plan", config)
+        res = await cls.run_prompt(prompt, "Tech Plan", config, override_mode=override_mode)
         if "⚠️" in res:
             return []
 
@@ -242,7 +242,7 @@ class AIEngine:
         return cleaned[:6]
 
     @classmethod
-    async def generate_standup(cls, project_name: str, notes_content: str, config: Dict[str, Any]) -> str:
+    async def generate_standup(cls, project_name: str, notes_content: str, config: Dict[str, Any], override_mode: Optional[str] = None) -> str:
         """Generates a structured daily standup update for Slack/Teams."""
         today_str = datetime.date.today().strftime('%b %d, %Y')
         prompt = (
@@ -258,6 +258,7 @@ class AIEngine:
             f"- Explicit blockers (#blocked) or dependency risks (#dep)\n\n"
             f"Be concise, technical, and high-impact."
         )
+        return await cls.run_prompt(prompt, "Executive", config, override_mode=override_mode)
     @staticmethod
     def filter_private_content(content: str) -> str:
         """Removes #private tasks and project-level context."""

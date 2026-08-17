@@ -363,7 +363,7 @@ class WebTPM:
             f"4. CONSTRAINT: Total length must be 5-8 sentences. Be punchy, technical, and objective."
         )
 
-        res = await AIEngine.run_prompt(prompt, "Summary", self.config)
+        res = await AIEngine.run_prompt(prompt, "Summary", self.config, override_mode=self.ai_mode)
         new_summary = res or "Summary unavailable."
 
         if "⚠️" in new_summary:
@@ -449,7 +449,7 @@ class WebTPM:
         self.processing_status = "Generating Standup..."
         await self.render_header_status.refresh()
         content = project.path.read_text(encoding='utf-8', errors='ignore')
-        self.standup_content = await AIEngine.generate_standup(project.name, content, self.config)
+        self.standup_content = await AIEngine.generate_standup(project.name, content, self.config, override_mode=self.ai_mode)
         self.processing_status = ""
         await self.render_header_status.refresh()
 
@@ -498,7 +498,7 @@ class WebTPM:
             result_box = ui.column().classes('w-full hidden gap-2')
             dialog.open()
 
-            subtasks = await AIEngine.decompose_task(task.clean_text, task.desc, project.name, self.config)
+            subtasks = await AIEngine.decompose_task(task.clean_text, task.desc, project.name, self.config, override_mode=self.ai_mode)
             spinner_box.classes('hidden', remove=True)
             result_box.classes('hidden', add=False)
 
