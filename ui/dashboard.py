@@ -813,13 +813,13 @@ class WebTPM:
                                         ui.label(f'#p{t.prio}').classes(f'text-[8px] px-1 py-0.5 rounded font-black {colors[t.prio]}')
                                     else:
                                         ui.label('')
+                                    if self.global_search and t.project_path:
+                                        pname = t.project_path.parent.name
+                                        ui.badge(pname, color=get_project_color(pname)).classes('text-[10px] font-bold px-1.5 py-0.5')
                                     if t.created or t.due:
                                         date_str = f"^{t.created} " if t.created else ""
                                         date_str += f"@{t.due}" if t.due else ""
                                         ui.label(f'📅 {date_str.strip()}').classes(f"text-[9px] {'text-red-400 font-bold' if t.overdue else 'text-gray-400'}")
-                                    if self.global_search and t.project_path:
-                                        pname = t.project_path.parent.name
-                                        ui.badge(pname, color=get_project_color(pname)).classes('text-[10px] font-bold px-1.5 py-0.5')
 
                                 ui.label(t.clean_text).classes(f"text-sm font-bold {'text-gray-500 line-through' if t.is_done else 'text-white'} mb-1 leading-tight")
                                 if t.desc:
@@ -870,18 +870,27 @@ class WebTPM:
         css_rules = []
         for proj_name, p_tasks in tasks_by_proj.items():
             gantt_lines.append(f"    section {proj_name}")
-            hex_color = self.get_project_color_hex(proj_name)
+            
+            # Generate a consistent CSS class name for this project
+            colors = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0', '#00838f', '#00695c', '#2e7d32', '#ef6c00', '#d84315']
+            idx = sum(ord(c) for c in proj_name) % len(colors)
+            hex_color = colors[idx]
+            proj_class = f"proj_{idx}"
+            
+            # Add CSS rule for this project class
+            css_rules.append(f".{proj_class} {{ fill: {hex_color} !important; stroke: {hex_color} !important; }}")
+            css_rules.append(f".{proj_class} + text, .{proj_class} ~ text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
             
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
+                # Add our custom class to the status/tags string
+                tags_str = f"{proj_class}, {status_str}"
+                
                 clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
                 if t.created and t.due:
-                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
+                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.created}, {t.due}")
                 else:
-                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
-                    
-                css_rules.append(f"rect[id*='id_{t.id}'] {{ fill: {hex_color} !important; stroke: {hex_color} !important; }}")
-                css_rules.append(f"rect[id*='id_{t.id}'] + text, rect[id*='id_{t.id}'] ~ text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
+                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.due}, 1d")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
