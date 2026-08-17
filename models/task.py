@@ -23,6 +23,7 @@ class Task:
     section: Optional[str] = None
     status_override: Optional[str] = None  # Explicit status: 'todo', 'in_progress', 'blocked', 'done'
     project_path: Optional[Path] = None
+    created: Optional[str] = None
 
     @classmethod
     def generate_id(cls, raw_line: str, line_idx: int) -> str:
@@ -53,6 +54,9 @@ class Task:
             
         if status_val == "in_progress" and not is_done:
             line += " #in_progress"
+            
+        if self.created:
+            line += f" ^{self.created}"
             
         if self.due:
             line += f" @{self.due}"

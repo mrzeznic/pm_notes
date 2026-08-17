@@ -862,8 +862,11 @@ class WebTPM:
             gantt_lines.append(f"    section {proj_name}")
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
-                clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '')
-                gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
+                clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
+                if t.created and t.due:
+                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
+                else:
+                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
@@ -1031,6 +1034,13 @@ class WebTPM:
                     ).classes('w-56').props('outlined dark dense')
                     
                     prio_sel = ui.select({1: 'High (#p1)', 2: 'Medium (#p2)', 3: 'Low (#p3)', 4: 'None'}, value=task.prio, label='Priority').classes('w-44').props('outlined dark dense')
+                    
+                    with ui.input('Created Date (^YYYY-MM-DD)', value=task.created or '').classes('w-56').props('outlined dark dense') as date_created_in:
+                        with ui.menu() as menu_created:
+                            ui.date().bind_value(date_created_in).on('update:model-value', menu_created.close)
+                        with date_created_in.add_slot('append'):
+                            ui.icon('edit_calendar').on('click', menu_created.open).classes('cursor-pointer')
+
                     with ui.input('Due Date (@YYYY-MM-DD)', value=task.due or '').classes('w-56').props('outlined dark dense') as date_in:
                         with ui.menu() as menu:
                             ui.date().bind_value(date_in).on('update:model-value', menu.close)
@@ -1059,6 +1069,7 @@ class WebTPM:
             dep=dep.value.strip() or None,
             desc=desc_long.value.strip(),
             due=date_in.value.strip() or None,
+            created=date_created_in.value.strip() or None,
             status_override=status_select.value,
             body_lines=body_input.value.strip().splitlines() if body_input.value.strip() else None
         )

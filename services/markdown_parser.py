@@ -52,6 +52,7 @@ class MarkdownParser:
                     br_match = re.search(r'#blocked:\s*([^#@\n(]+)', raw_text, re.IGNORECASE)
                     dep_match = re.search(r'#dep:\s*([^#@\n(]+)', raw_text, re.IGNORECASE)
                     due_match = re.search(r'@(\d{4}-\d{2}-\d{2})', raw_text)
+                    created_match = re.search(r'\^(\d{4}-\d{2}-\d{2})', raw_text)
                     desc_match = re.search(r'\(([^)]+)\)\s*$', raw_text)
                     wip_match = re.search(r'#(?:in_progress|wip)\b', raw_text, re.IGNORECASE)
 
@@ -61,6 +62,7 @@ class MarkdownParser:
                     desc_val = desc_match.group(1).strip() if desc_match else ""
 
                     due_str = due_match.group(1) if due_match else None
+                    created_str = created_match.group(1) if created_match else None
                     overdue = False
                     if due_str:
                         try:
@@ -71,7 +73,7 @@ class MarkdownParser:
                             pass
 
                     clean_text = raw_text
-                    for m in [prio_match, br_match, dep_match, due_match, desc_match, wip_match]:
+                    for m in [prio_match, br_match, dep_match, due_match, created_match, desc_match, wip_match]:
                         if m:
                             clean_text = clean_text.replace(m.group(0), '')
                     clean_text = clean_text.strip()
@@ -101,6 +103,7 @@ class MarkdownParser:
                         desc=desc_val,
                         body_lines=body_lines,
                         due=due_str,
+                        created=created_str,
                         overdue=overdue,
                         is_archived=is_archived,
                         section=current_section,
@@ -156,7 +159,15 @@ class MarkdownParser:
     @staticmethod
     def add_task(content: str, task_text: str) -> str:
         """Appends a new task to the ## Tasks section safely without regex backslash corruption."""
-        task_line = f"- [ ] {task_text.strip()}"
+        import datetime
+        today_str = datetime.date.today().isoformat()
+        
+        # If task text already has a creation date, don't append another one
+        if not re.search(r'\^(\d{4}-\d{2}-\d{2})', task_text):
+            task_line = f"- [ ] {task_text.strip()} ^{today_str}"
+        else:
+            task_line = f"- [ ] {task_text.strip()}"
+            
         if not content.strip():
             return f"## Tasks\n{task_line}\n"
 
