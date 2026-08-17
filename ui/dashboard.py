@@ -871,26 +871,23 @@ class WebTPM:
         for proj_name, p_tasks in tasks_by_proj.items():
             gantt_lines.append(f"    section {proj_name}")
             
-            # Generate a consistent CSS class name for this project
+            # Generate a consistent hex color for this project
             colors = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0', '#00838f', '#00695c', '#2e7d32', '#ef6c00', '#d84315']
             idx = sum(ord(c) for c in proj_name) % len(colors)
             hex_color = colors[idx]
-            proj_class = f"proj_{idx}"
-            
-            # Add CSS rule for this project class
-            css_rules.append(f".{proj_class} {{ fill: {hex_color} !important; stroke: {hex_color} !important; }}")
-            css_rules.append(f".{proj_class} + text, .{proj_class} ~ text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
             
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
-                # Add our custom class to the status/tags string
-                tags_str = f"{proj_class}, {status_str}"
                 
                 clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
                 if t.created and t.due:
-                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.created}, {t.due}")
+                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
                 else:
-                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.due}, 1d")
+                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
+                    
+                # The custom ID is assigned to a <g> tag wrapping the rect in recent Mermaid versions
+                css_rules.append(f"[id*='id_{t.id}'] rect.task {{ fill: {hex_color} !important; stroke: {hex_color} !important; }}")
+                css_rules.append(f"[id*='id_{t.id}'] text.taskText {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
@@ -917,7 +914,7 @@ class WebTPM:
                 # Project Health Donut Chart
                 with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
                     ui.label('Project Health').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
-                    ui.echarts({
+                    ui.echart({
                         'tooltip': {'trigger': 'item'},
                         'legend': {'top': '5%', 'left': 'center', 'textStyle': {'color': '#8b949e'}},
                         'series': [
@@ -946,7 +943,7 @@ class WebTPM:
                 # Priority Distribution Bar Chart
                 with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
                     ui.label('Priority Backlog').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
-                    ui.echarts({
+                    ui.echart({
                         'tooltip': {'trigger': 'axis'},
                         'xAxis': {
                             'type': 'category', 
