@@ -196,6 +196,7 @@ class AIEngine:
     async def run_prompt(cls, prompt: str, tool_name: str, config: Dict[str, Any], override_mode: Optional[str] = None) -> str:
         """Routes prompt to appropriate engine based on tool configuration or override."""
         mode = override_mode or config.get("MODEL_PREFS", {}).get(tool_name, "local")
+        AILogger.log(f"DEBUG run_prompt: tool={tool_name}, override_mode={override_mode}, final_mode={mode}", "ai")
         if mode == "cloud":
             return await cls.run_copilot(prompt, config)
         return await cls.run_local(prompt, config)

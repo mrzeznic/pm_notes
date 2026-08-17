@@ -363,7 +363,7 @@ class WebTPM:
             f"4. CONSTRAINT: Total length must be 5-8 sentences. Be punchy, technical, and objective."
         )
 
-        res = await AIEngine.run_prompt(prompt, "Summary", self.config, override_mode=self.ai_mode)
+        res = await AIEngine.run_prompt(prompt, "Summary", self.config)
         new_summary = res or "Summary unavailable."
 
         if "⚠️" in new_summary:
@@ -418,7 +418,9 @@ class WebTPM:
                 all_notes=all_notes_text
             )
 
-            res = await AIEngine.run_prompt(p_text, name, self.config, override_mode=self.ai_mode)
+            mode_to_use = self.ai_mode if name == "Chat" else None
+            AILogger.log(f"DEBUG run_ai_tool: name={name}, mode_to_use={mode_to_use}", "ai")
+            res = await AIEngine.run_prompt(p_text, name, self.config, override_mode=mode_to_use)
 
             if "⚠️" not in res:
                 self.ai_cache[cache_key] = res
@@ -449,7 +451,7 @@ class WebTPM:
         self.processing_status = "Generating Standup..."
         await self.render_header_status.refresh()
         content = project.path.read_text(encoding='utf-8', errors='ignore')
-        self.standup_content = await AIEngine.generate_standup(project.name, content, self.config, override_mode=self.ai_mode)
+        self.standup_content = await AIEngine.generate_standup(project.name, content, self.config)
         self.processing_status = ""
         await self.render_header_status.refresh()
 
@@ -498,7 +500,7 @@ class WebTPM:
             result_box = ui.column().classes('w-full hidden gap-2')
             dialog.open()
 
-            subtasks = await AIEngine.decompose_task(task.clean_text, task.desc, project.name, self.config, override_mode=self.ai_mode)
+            subtasks = await AIEngine.decompose_task(task.clean_text, task.desc, project.name, self.config)
             spinner_box.classes('hidden', remove=True)
             result_box.classes('hidden', add=False)
 
