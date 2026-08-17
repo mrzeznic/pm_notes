@@ -329,8 +329,13 @@ class WebTPM:
         await self.render_project_summary.refresh()
 
     async def update_project_summary(self, force: bool = False):
+        if getattr(self, 'global_search', False):
+            ui.notify("AT A GLANCE requires a specific project. Please turn off 'Aggregated View'.", type="warning", position="top")
+            return
+            
         project = self.get_active_project()
-        if not project.path or not project.path.exists():
+        if not project.path or not project.path.exists() or project.name == "Empty_Portfolio":
+            ui.notify("AT A GLANCE requires an active project. Please select or create one.", type="warning", position="top")
             self.project_summary = "No notes available."
             await self.render_project_summary.refresh()
             return
@@ -372,9 +377,22 @@ class WebTPM:
 
     async def run_ai_tool(self, name: str, template: str, input_req: bool = False, force: bool = False):
         project = self.get_active_project()
+        
+        # Validation: If tool needs specific project notes but we are in Aggregated View
+        if "{notes}" in template and "{all_notes}" not in template:
+            if getattr(self, 'global_search', False):
+                ui.notify(f"The '{name}' tool requires a specific project. Please turn off 'Aggregated View' and select a project.", type="warning", position="top")
+                return
+            if not project.path or not project.path.exists() or project.name == "Empty_Portfolio":
+                ui.notify(f"The '{name}' tool requires an active project. Please select or create one.", type="warning", position="top")
+                return
+                
+        # Validation: General fallback
         if not project.path or not project.path.exists():
-            ui.notify("No active project notes found.", type="warning")
-            return
+            # If it's a portfolio tool (all_notes), we don't necessarily need the active project to exist if there are other projects.
+            if "{all_notes}" not in template:
+                ui.notify("No active project notes found.", type="warning")
+                return
 
         c_hash = ProjectService.get_content_hash(project.path)
         cache_key = (project.name, name, c_hash)
@@ -844,7 +862,7 @@ class WebTPM:
             gantt_lines.append(f"    section {proj_name}")
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
-                clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '')
+                clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '')
                 gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
             
         mermaid_code = "\n".join(gantt_lines)
