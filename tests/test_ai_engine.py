@@ -17,7 +17,10 @@ async def test_run_local_success(mocker):
 
 @pytest.mark.asyncio
 async def test_decompose_task(mocker):
-    config = {"MODEL_PREFS": {"Tech Plan": "local"}}
+    config = {
+        "MODEL_PREFS": {"Tech Plan": "local"},
+        "PROMPT_TEMPLATES": {"Decompose": "Decompose this: {project_name} {task_title} {task_desc}"}
+    }
     
     fake_response = """
 - [ ] Task 1 #p1

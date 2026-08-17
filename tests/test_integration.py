@@ -25,7 +25,10 @@ A test project.
     assert tasks[0].clean_text == "Task A"
     
     # 4. Mock the AI endpoint and pass the data to AIEngine
-    config = {"MODEL_PREFS": {"Tech Plan": "local"}}
+    config = {
+        "MODEL_PREFS": {"Tech Plan": "local"},
+        "PROMPT_TEMPLATES": {"Decompose": "Decompose this: {project_name} {task_title} {task_desc}"}
+    }
     fake_ai_response = """
 - [ ] Subtask 1 #p1
 - [ ] Subtask 2 #p2

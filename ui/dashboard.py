@@ -823,20 +823,29 @@ class WebTPM:
             return
             
         gantt_lines = ["%%{init: {'theme': 'dark', 'themeVariables': {'textColor': '#e5e7eb', 'primaryTextColor': '#e5e7eb', 'titleColor': '#ffffff'}}}%%", "gantt", "    title Project Timeline", "    dateFormat YYYY-MM-DD", "    axisFormat %m/%d"]
-        gantt_lines.append("    section Tasks")
         
+        # Group tasks by project
+        from collections import defaultdict
+        tasks_by_proj = defaultdict(list)
         has_due = False
+        
         for t in tasks:
             if not t.due:
                 continue
             has_due = True
-            status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
-            clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '')
-            gantt_lines.append(f"    {clean_name} : {status_str}{t.id}, {t.due}, 1d")
+            proj_name = t.project_path.stem if t.project_path else "Tasks"
+            tasks_by_proj[proj_name].append(t)
             
         if not has_due:
             ui.label('No tasks with a due date (@YYYY-MM-DD) found.').classes('text-gray-500 italic p-4')
             return
+            
+        for proj_name, p_tasks in tasks_by_proj.items():
+            gantt_lines.append(f"    section {proj_name}")
+            for t in p_tasks:
+                status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
+                clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '')
+                gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
