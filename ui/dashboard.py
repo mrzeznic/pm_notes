@@ -315,7 +315,7 @@ class WebTPM:
         if 0 <= task.line_start < len(lines) and task.line_start < task.line_end <= len(lines):
             new_lines = new_content.splitlines()
             lines[task.line_start:task.line_end] = new_lines
-            ProjectService.atomic_write(project.path, "\n".join(lines) + "\n")
+            ProjectService.atomic_write(path, "\n".join(lines) + "\n")
             self.refresh_portfolio()
             self.render_sidebar.refresh()
             self.render_tasks_container.refresh()
@@ -418,7 +418,7 @@ class WebTPM:
                 all_notes=all_notes_text
             )
 
-            res = await AIEngine.run_prompt(p_text, name, self.config)
+            res = await AIEngine.run_prompt(p_text, name, self.config, override_mode=self.ai_mode)
 
             if "⚠️" not in res:
                 self.ai_cache[cache_key] = res
@@ -912,9 +912,19 @@ class WebTPM:
             self.refresh_portfolio()
             self.render_tasks_container.refresh()
             
-        with ui.column().classes('w-full h-full gap-2 p-2'):
-            raw_input = ui.textarea(value=content).classes('w-full font-mono text-sm').props('outlined dark rows=35')
-            ui.button('Save Notes', on_click=_save).props('color=blue')
+        with ui.column().classes('w-full h-full gap-2 p-0'):
+            with ui.row().classes('w-full justify-between items-center bg-[#161b22] border-b border-[#30363d] p-3'):
+                ui.label(f'Editing: {p.name}/notes.md').classes('text-sm font-mono font-bold text-gray-300')
+                ui.button('Save Notes', on_click=_save, icon='save').props('color=blue size=sm')
+
+            with ui.splitter(value=50).classes('w-full h-[75vh] flex-grow') as splitter:
+                with splitter.before:
+                    raw_input = ui.textarea(value=content).classes('w-full h-full font-mono text-sm bg-[#0d1117] text-gray-300').props('dark autogrow borderless')
+                with splitter.after:
+                    with ui.card().classes('w-full h-full overflow-y-auto bg-[#0d1117] border-none text-gray-300 shadow-none'):
+                        preview = ui.markdown(content).classes('w-full markdown-body')
+
+            raw_input.on_value_change(lambda e: preview.set_content(e.value))
 
     # --- DIALOGS ---
 

@@ -5,9 +5,13 @@ This is a demo project created to test the new AST-based multi-line parsing, fil
 You can open this file in VS Code, modify a task, and see the UI update instantly!
 
 ## Tasks
-- [ ] Simple one-line task @2026-08-15
-- [ ] Implement backend API integration #p1 #dep @2026-08-20
-  This task is a critical dependency for the frontend.
+- [ ] Simple one-line task @2026-08-15 (dsadsadafsd)
+fsafsdasafa
+- [ ] Implement backend API integration  #dep #p1 @2026-08-20 (dsadasda)
+This task is a critical dependency for the frontend.
+dsad
+d
+dsa
 - [x] Completed task #p2
 - [ ] Multi-line task to test AST #in_progress @2026-08-25
   This is a description that spans
