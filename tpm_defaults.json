@@ -5,12 +5,13 @@
     "WIP_LIMIT": 8,
     "MODEL_PREFS": {
         "Summary": "local",
-        "Chat": "local",
-        "Daily Roadmap": "local",
-        "Refactor Notes": "local",
+        "Chat": "cloud",
+        "Daily Roadmap": "cloud",
+        "Refactor Task": "cloud",
+        "Refactor Notes": "cloud",
         "Executive": "cloud",
         "Tech Plan": "cloud",
-        "Health": "local",
-        "Risks": "local"
+        "Triage": "cloud",
+        "Groom": "cloud"
     }
 }

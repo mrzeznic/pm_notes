@@ -1081,15 +1081,13 @@ class WebTPM:
                     ui.input('Cloud Model (Copilot)', value=self.config["CLOUD_MODEL"]).bind_value(self.config, 'CLOUD_MODEL').props('outlined dark dense').classes('w-1/2')
                     ui.input('Local Model (Ollama)', value=self.config["LOCAL_MODEL"]).bind_value(self.config, 'LOCAL_MODEL').props('outlined dark dense').classes('w-1/2')
 
-                ui.input('GitHub Token (PAT / Copilot)', value=self.config.get("GITHUB_TOKEN", ""), password=True, password_toggle_button=True).bind_value(self.config, 'GITHUB_TOKEN').props('outlined dark dense').tooltip('Personal Access Token with Copilot / Models access')
-
                 with ui.row().classes('w-full gap-4'):
                     ui.input('Ollama Base URL', value=self.config["OLLAMA_BASE_URL"]).bind_value(self.config, 'OLLAMA_BASE_URL').props('outlined dark dense').classes('w-1/2')
                     ui.number('WIP Limit (Red Alert)', value=int(self.config.get("WIP_LIMIT", 5)), min=1, step=1).bind_value(self.config, 'WIP_LIMIT').props('outlined dark dense').classes('w-1/2')
 
                 ui.label('TOOL ENGINE PREFERENCES').classes('text-header-section text-blue-400 mt-2')
                 with ui.grid(columns=2).classes('w-full gap-3'):
-                    for tool in ["Summary", "Daily Roadmap", "Executive", "Triage", "Groom", "Tech Plan", "Refactor Task", "Chat", "Health", "Risks"]:
+                    for tool in ["Summary", "Daily Roadmap", "Executive", "Triage", "Groom", "Tech Plan", "Refactor Task", "Refactor Notes", "Chat"]:
                         ui.select(['local', 'cloud'], label=tool, value=self.config["MODEL_PREFS"].get(tool, 'local')).bind_value(self.config["MODEL_PREFS"], tool).props('dense dark outlined')
 
             with ui.row().classes('w-full justify-end gap-3 mt-6 pt-3 border-t border-gray-800'):

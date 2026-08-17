@@ -166,26 +166,16 @@ class AIEngine:
             start_time = time.time()
             raw_cmd = config.get("GLOBAL_MODEL_CMD", "gh copilot chat -p")
             cmd_parts = shlex.split(raw_cmd)
-            pass_via_stdin = "-i" in cmd_parts
             
-            if pass_via_stdin:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd_parts,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-            else:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd_parts, prompt,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
+            process = await asyncio.create_subprocess_exec(
+                *cmd_parts, prompt,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
             try:
-                if pass_via_stdin:
-                    stdout, stderr = await asyncio.wait_for(process.communicate(input=prompt.encode('utf-8')), timeout=300.0)
-                else:
-                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300.0)
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300.0)
                 duration = time.time() - start_time
                 if process.returncode == 0:
                     AILogger.log(f"Cloud AI CLI responded in {duration:.1f}s", "success")

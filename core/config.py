@@ -29,8 +29,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "Refactor Notes": "cloud",
         "Executive": "cloud",
         "Tech Plan": "cloud",
-        "Health": "local",
-        "Risks": "local",
         "Triage": "cloud",
         "Groom": "cloud"
     }
@@ -71,11 +69,13 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     if "MODEL_PREFS" not in config or not isinstance(config["MODEL_PREFS"], dict):
         config["MODEL_PREFS"] = DEFAULT_CONFIG["MODEL_PREFS"].copy()
     else:
+        new_prefs = {}
         for tool, default_val in DEFAULT_CONFIG["MODEL_PREFS"].items():
             val = config["MODEL_PREFS"].get(tool, default_val)
             if val not in {"local", "cloud"}:
                 val = default_val
-            config["MODEL_PREFS"][tool] = val
+            new_prefs[tool] = val
+        config["MODEL_PREFS"] = new_prefs
 
     return config
 
