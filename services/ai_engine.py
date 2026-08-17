@@ -215,15 +215,10 @@ class AIEngine:
     @classmethod
     async def decompose_task(cls, task_title: str, task_desc: str, project_name: str, config: Dict[str, Any], override_mode: Optional[str] = None) -> List[str]:
         """Prompts AI to break a high-level task into 3-5 concrete subtasks with priority tags."""
-        prompt = (
-            f"Act as a Technical Project Manager. Decompose this complex task for project '{project_name}' into 3 to 5 clear, actionable subtasks.\n\n"
-            f"Parent Task: {task_title}\n"
-            f"Context / Description: {task_desc or 'None'}\n\n"
-            f"FORMAT RULES:\n"
-            f"1. Return ONLY the subtask items.\n"
-            f"2. You MUST use standard markdown checkboxes for each subtask: '- [ ] Actionable title #p<1|2|3>'\n"
-            f"3. You may include multi-line descriptions or nested sub-bullets under each checkbox to provide more context. Our system supports full markdown blocks!\n"
-            f"4. Do not include conversational text, headers, or explanations."
+        prompt = config["PROMPT_TEMPLATES"]["Decompose"].format(
+            project_name=project_name,
+            task_title=task_title,
+            task_desc=task_desc or 'None'
         )
         res = await cls.run_prompt(prompt, "Tech Plan", config, override_mode=override_mode)
         if "⚠️" in res:
@@ -257,18 +252,10 @@ class AIEngine:
     async def generate_standup(cls, project_name: str, notes_content: str, config: Dict[str, Any], override_mode: Optional[str] = None) -> str:
         """Generates a structured daily standup update for Slack/Teams."""
         today_str = datetime.date.today().strftime('%b %d, %Y')
-        prompt = (
-            f"Act as a Technical Project Manager. Review the project notes for '{project_name}' and produce a crisp, executive daily standup update formatted for Slack/Teams.\n\n"
-            f"--- NOTES ---\n{notes_content}\n\n"
-            f"OUTPUT FORMAT (STRICT):\n"
-            f"### 🚀 Standup: {project_name} ({today_str})\n\n"
-            f"**🟢 Completed / Recent Progress:**\n"
-            f"- Bullet points of completed work based on [x] tasks and their sub-items\n\n"
-            f"**🔵 Focus for Today (In Flight):**\n"
-            f"- Key active tasks, priorities #p1/#p2, and target due dates. Summarize long descriptions.\n\n"
-            f"**🔴 Blockers & Vulnerabilities:**\n"
-            f"- Explicit blockers (#blocked) or dependency risks (#dep)\n\n"
-            f"Be concise, technical, and high-impact."
+        prompt = config["PROMPT_TEMPLATES"]["Standup"].format(
+            project_name=project_name,
+            notes_content=notes_content,
+            today_str=today_str
         )
         return await cls.run_prompt(prompt, "Executive", config, override_mode=override_mode)
     @staticmethod

@@ -352,15 +352,9 @@ class WebTPM:
         if "## PROJECT SUMMARY" in tasks_portion:
             tasks_portion = re.sub(r'^##+\s+PROJECT SUMMARY.*?(?=\n##+|\Z)', '', tasks_portion, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
 
-        prompt = (
-            f"Act as a Technical Project Manager. Provide a highly focused 'at-a-glance' summary of this project.\n\n"
-            f"--- SOURCE 1: CURRENT TASKS (Dynamic Progress) ---\n{tasks_portion}\n\n"
-            f"--- SOURCE 2: PROJECT INFO (Static Context) ---\n{project_info}\n\n"
-            f"STRICT NARRATIVE STRUCTURE:\n"
-            f"1. LEAD (3-5 sentences): Describe current progress, recent velocity, and technical activity based ONLY on the TASKS.\n"
-            f"2. CLOSE (2-3 sentences): Summarize project mission and owner details based ONLY on the PROJECT INFO.\n"
-            f"3. FORMAT: Return exactly one paragraph of continuous text. No bullets, no headers.\n"
-            f"4. CONSTRAINT: Total length must be 5-8 sentences. Be punchy, technical, and objective."
+        prompt = self.config["PROMPT_TEMPLATES"]["Summary"].format(
+            tasks_portion=tasks_portion,
+            project_info=project_info
         )
 
         res = await AIEngine.run_prompt(prompt, "Summary", self.config)
@@ -418,9 +412,8 @@ class WebTPM:
                 all_notes=all_notes_text
             )
 
-            mode_to_use = self.ai_mode if name == "Chat" else None
-            AILogger.log(f"DEBUG run_ai_tool: name={name}, mode_to_use={mode_to_use}", "ai")
-            res = await AIEngine.run_prompt(p_text, name, self.config, override_mode=mode_to_use)
+            AILogger.log(f"DEBUG run_ai_tool: name={name}", "ai")
+            res = await AIEngine.run_prompt(p_text, name, self.config)
 
             if "⚠️" not in res:
                 self.ai_cache[cache_key] = res
@@ -560,19 +553,34 @@ class WebTPM:
         self.processing_status = "Thinking..."
         await self.render_header_status.refresh()
 
-        project = self.get_active_project()
-        notes_content = project.path.read_text(encoding='utf-8', errors='ignore') if project.path and project.path.exists() else ""
+        if getattr(self, 'global_search', False):
+            notes_content = ""
+            for pr in self.projects:
+                if pr.path and pr.path.exists():
+                    pr_content = pr.path.read_text(encoding='utf-8', errors='ignore')
+                    filtered = AIEngine.filter_private_content(pr_content)
+                    if filtered.strip():
+                        notes_content += f"\n--- PROJECT: {pr.name} ---\n{filtered}\n"
+            project_name = "Aggregated Portfolio View"
+        else:
+            project = self.get_active_project()
+            notes_content = project.path.read_text(encoding='utf-8', errors='ignore') if project.path and project.path.exists() else ""
+            notes_content = AIEngine.filter_private_content(notes_content)
+            project_name = project.name
+
         history_context = self.insights_content[-2000:] if self.insights_content else ""
 
-        full_prompt = (
-            f"Project: {project.name}\n"
-            f"Notes Content:\n{notes_content}\n"
-            f"Recent Context:\n{history_context}\n\n"
-            f"User Question: {prompt_text}"
+        full_prompt = self.config["PROMPT_TEMPLATES"]["Chat"].format(
+            project_name=project_name,
+            notes_content=notes_content,
+            history_context=history_context,
+            prompt_text=prompt_text
         )
 
-        res = await AIEngine.run_prompt(full_prompt, "Chat", self.config, override_mode=self.ai_mode)
-        new_entry = f"**You:** {prompt_text}\n\n**AI ({self.ai_mode.upper()}):**\n{res}\n\n---\n\n"
+        res = await AIEngine.run_prompt(full_prompt, "Chat", self.config)
+        
+        mode = self.config.get("MODEL_PREFS", {}).get("Chat", "local").upper()
+        new_entry = f"**You:** {prompt_text}\n\n**AI ({mode}):**\n{res}\n\n---\n\n"
 
         if not self.insights_content or self.insights_content == "No chat history.":
             self.insights_content = new_entry
@@ -596,9 +604,11 @@ class WebTPM:
 
     @ui.refreshable
     def render_logs(self):
-        with ui.column().classes('w-full bg-black/40 p-2 rounded border border-[#21262d] gap-0'):
-            for log_entry in AILogger.logs[-3:]:
-                ui.label(log_entry).classes('text-[10px] text-gray-400 font-mono break-all leading-tight')
+        with ui.column().classes('w-full bg-black/40 p-2 rounded border border-[#21262d] gap-0 h-40'):
+            ui.label('SYSTEM LOGS').classes('text-[10px] text-blue-400 font-bold mb-1 tracking-wider')
+            with ui.scroll_area().classes('w-full flex-grow'):
+                for log_entry in AILogger.logs[-20:]:
+                    ui.label(log_entry).classes('text-[10px] text-gray-400 font-mono break-all leading-tight mb-1')
 
     @ui.refreshable
     def render_project_summary(self):
@@ -975,7 +985,7 @@ class WebTPM:
                 ui.label('Task Details').classes('text-xl font-bold text-white')
                 with ui.row().classes('gap-2'):
                     ui.button('✨ AI Break Down', icon='auto_fix_high', on_click=lambda: self.open_task_breakdown_dialog(task)).props('flat dense color=purple')
-                    ui.button('✨ AI Refactor', icon='edit_note', on_click=lambda: self.run_ai_tool('Refactor Task', f'Refactor this task to be more clear, actionable, and formatted correctly. Retain all metadata tags:\\n\\n{task.raw_text}')).props('flat dense color=blue')
+                    ui.button('✨ AI Refactor', icon='edit_note', on_click=lambda: self.run_ai_tool('Refactor Task', self.config["PROMPT_TEMPLATES"]["Refactor Task"].format(task_text=task.raw_text))).props('flat dense color=blue')
 
             with ui.column().classes('w-full flex-grow gap-4'):
                 desc_input = ui.input('Title', value=task.clean_text).classes('w-full').props('outlined dark')
@@ -1032,8 +1042,7 @@ class WebTPM:
             with ui.row().classes('w-full justify-between items-center mb-3 pb-2 border-b border-gray-800'):
                 ui.label('AI TPM Chat & Insights').classes('text-xl font-bold text-white')
                 with ui.row().classes('items-center gap-3'):
-                    ui.select(['local', 'cloud'], label='Engine', value=self.ai_mode).bind_value(self, 'ai_mode').props('dense dark outlined')
-                    ui.button(icon='refresh', on_click=lambda: self.run_ai_tool("Chat", "{notes}", force=True)).props('flat color=gray').tooltip('Refresh Context')
+                    ui.button(icon='refresh', on_click=lambda: self.run_ai_tool("Chat", "{all_notes}" if getattr(self, 'global_search', False) else "{notes}", force=True)).props('flat color=gray').tooltip('Refresh Context')
             with ui.scroll_area().classes('w-full flex-grow p-6 bg-black/30 rounded-lg border border-gray-800'):
                 ui.markdown(self.insights_content or "No chat history.").classes('text-standard text-gray-100')
             ui.button('Close', on_click=dialog.close).props('flat color=blue mt-4 self-end')
@@ -1043,7 +1052,7 @@ class WebTPM:
         with ui.dialog() as dialog, ui.card().classes('w-[96vw] max-w-none h-[92vh] bg-gray-900 border border-gray-700 flex flex-col p-6'):
             with ui.row().classes('w-full justify-between items-center mb-3 pb-2 border-b border-gray-800'):
                 ui.label('Portfolio Daily Roadmap').classes('text-xl font-bold text-white')
-                ui.button(icon='refresh', on_click=lambda: self.run_ai_tool('Daily Roadmap', 'Act as a TPM. Review all project notes below. Group activities by project, highlight urgent items and blockers. Provide a concise daily roadmap:\n\n{all_notes}', force=True)).props('flat color=gray')
+                ui.button(icon='refresh', on_click=lambda: self.run_ai_tool('Daily Roadmap', self.config["PROMPT_TEMPLATES"]["Daily Roadmap"].replace("{all_notes}", "{all_notes}"), force=True)).props('flat color=gray')
             with ui.scroll_area().classes('w-full flex-grow p-6 bg-black/30 rounded-lg border border-gray-800'):
                 ui.markdown(self.daily_content).classes('text-standard text-gray-100')
             ui.button('Close', on_click=dialog.close).props('flat color=blue mt-4 self-end')
@@ -1053,7 +1062,7 @@ class WebTPM:
         with ui.dialog() as self.refactor_dialog, ui.card().classes('w-[96vw] max-w-none h-[92vh] bg-gray-900 border border-gray-700 flex flex-col p-6'):
             with ui.row().classes('w-full justify-between items-center mb-3 pb-2 border-b border-gray-800'):
                 ui.label('Refactor Notes (Diff Preview)').classes('text-xl font-bold text-white')
-                ui.button(icon='refresh', on_click=lambda: self.run_ai_tool('Refactor Notes', 'Refactor these project notes for {project}. Maintain all task statuses, tags, and metadata. Improve clarity, group tasks logically, and clean up formatting:\n\n{notes}', force=True)).props('flat color=gray')
+                ui.button(icon='refresh', on_click=lambda: self.run_ai_tool('Refactor Notes', self.config["PROMPT_TEMPLATES"]["Refactor Notes"].replace("{project}", "{project}").replace("{notes}", "{notes}"), force=True)).props('flat color=gray')
             
             with ui.row().classes('w-full flex-grow gap-4 min-h-0'):
                 with ui.column().classes('w-1/2 h-full'):
@@ -1072,23 +1081,36 @@ class WebTPM:
         self.refactor_dialog.open()
 
     def open_config_dialog(self):
-        with ui.dialog() as dialog, ui.card().classes('w-[750px] max-w-[95vw] bg-gray-900 border border-gray-700 p-8 flex flex-col'):
-            ui.label('System & AI Configuration').classes('text-xl font-bold text-white mb-4')
-            with ui.column().classes('w-full gap-4 max-h-[65vh] overflow-y-auto pr-2'):
-                ui.input('Projects Root Directory', value=self.config["PROJECTS_ROOT"]).bind_value(self.config, 'PROJECTS_ROOT').props('outlined dark dense')
-                
-                with ui.row().classes('w-full gap-4'):
-                    ui.input('Cloud Model (Copilot)', value=self.config["CLOUD_MODEL"]).bind_value(self.config, 'CLOUD_MODEL').props('outlined dark dense').classes('w-1/2')
-                    ui.input('Local Model (Ollama)', value=self.config["LOCAL_MODEL"]).bind_value(self.config, 'LOCAL_MODEL').props('outlined dark dense').classes('w-1/2')
+        with ui.dialog() as dialog, ui.card().classes('w-[850px] max-w-[95vw] bg-gray-900 border border-gray-700 p-8 flex flex-col'):
+            ui.label('System & AI Configuration').classes('text-xl font-bold text-white mb-2')
+            
+            with ui.tabs().classes('w-full text-blue-400') as tabs:
+                general_tab = ui.tab('General Settings')
+                prompt_tab = ui.tab('Prompt Studio')
 
-                with ui.row().classes('w-full gap-4'):
-                    ui.input('Ollama Base URL', value=self.config["OLLAMA_BASE_URL"]).bind_value(self.config, 'OLLAMA_BASE_URL').props('outlined dark dense').classes('w-1/2')
-                    ui.number('WIP Limit (Red Alert)', value=int(self.config.get("WIP_LIMIT", 5)), min=1, step=1).bind_value(self.config, 'WIP_LIMIT').props('outlined dark dense').classes('w-1/2')
+            with ui.tab_panels(tabs, value=general_tab).classes('w-full bg-transparent p-0'):
+                with ui.tab_panel(general_tab):
+                    with ui.column().classes('w-full gap-4 max-h-[60vh] overflow-y-auto pr-2 pt-2'):
+                        ui.input('Projects Root Directory', value=self.config["PROJECTS_ROOT"]).bind_value(self.config, 'PROJECTS_ROOT').props('outlined dark dense')
+                        
+                        with ui.row().classes('w-full gap-4'):
+                            ui.input('Cloud Model (Copilot)', value=self.config["CLOUD_MODEL"]).bind_value(self.config, 'CLOUD_MODEL').props('outlined dark dense').classes('w-1/2')
+                            ui.input('Local Model (Ollama)', value=self.config["LOCAL_MODEL"]).bind_value(self.config, 'LOCAL_MODEL').props('outlined dark dense').classes('w-1/2')
 
-                ui.label('TOOL ENGINE PREFERENCES').classes('text-header-section text-blue-400 mt-2')
-                with ui.grid(columns=2).classes('w-full gap-3'):
-                    for tool in ["Summary", "Daily Roadmap", "Executive", "Triage", "Groom", "Tech Plan", "Refactor Task", "Refactor Notes", "Chat"]:
-                        ui.select(['local', 'cloud'], label=tool, value=self.config["MODEL_PREFS"].get(tool, 'local')).bind_value(self.config["MODEL_PREFS"], tool).props('dense dark outlined')
+                        with ui.row().classes('w-full gap-4'):
+                            ui.input('Ollama Base URL', value=self.config["OLLAMA_BASE_URL"]).bind_value(self.config, 'OLLAMA_BASE_URL').props('outlined dark dense').classes('w-1/2')
+                            ui.number('WIP Limit (Red Alert)', value=int(self.config.get("WIP_LIMIT", 5)), min=1, step=1).bind_value(self.config, 'WIP_LIMIT').props('outlined dark dense').classes('w-1/2')
+
+                        ui.label('TOOL ENGINE PREFERENCES').classes('text-header-section text-blue-400 mt-2')
+                        with ui.grid(columns=2).classes('w-full gap-3'):
+                            for tool in ["Summary", "Daily Roadmap", "Executive", "Triage", "Groom", "Tech Plan", "Refactor Task", "Refactor Notes", "Chat"]:
+                                ui.select(['local', 'cloud'], label=tool, value=self.config["MODEL_PREFS"].get(tool, 'local')).bind_value(self.config["MODEL_PREFS"], tool).props('dense dark outlined')
+
+                with ui.tab_panel(prompt_tab):
+                    with ui.column().classes('w-full gap-6 max-h-[60vh] overflow-y-auto pr-2 pt-2'):
+                        ui.label('Master Prompts Editor').classes('text-header-section text-purple-400 mb-2')
+                        for tool in self.config["PROMPT_TEMPLATES"].keys():
+                            ui.textarea(tool, value=self.config["PROMPT_TEMPLATES"][tool]).bind_value(self.config["PROMPT_TEMPLATES"], tool).props('outlined dark autogrow').classes('w-full font-mono text-xs')
 
             with ui.row().classes('w-full justify-end gap-3 mt-6 pt-3 border-t border-gray-800'):
                 ui.button('Cancel', on_click=dialog.close).props('flat color=gray')
@@ -1131,14 +1153,14 @@ class WebTPM:
                 ui.label('TPM COMMAND CENTER').classes('text-base font-bold text-white tracking-wider')
 
             with ui.row().classes('items-center justify-center gap-1.5 grow'):
-                for tool, prmt in [
-                    ('EXECUTIVE', 'ROI and Business Impact:\n{notes}'),
-                    ('TRIAGE', 'Analyze the project notes below. Identify stale tasks, assess blocker severity, and output a structured Project Risk Report. Suggest priority adjustments:\n{all_notes}'),
-                    ('GROOM', 'Act as an expert TPM. Review ONLY the tasks in the "TO DO" section (tasks that are not marked as completed, blocked, or in-progress). Group related TO DO tasks and move all #p1 or critical dependency (#dep) tasks to the top of the list. Output the reorganized list:\n{notes}')
+                for tool, ttip, tmpl_key in [
+                    ('EXECUTIVE', 'Generate a high-level ROI and business impact summary', 'Executive'),
+                    ('GROOM', 'Reorganize and prioritize the TO DO backlog based on dependencies', 'Groom'),
+                    ('TRIAGE', 'Scan all projects for stale tasks, blockers, and risks', 'Triage')
                 ]:
-                    ui.button(tool, on_click=lambda t=tool, p=prmt: self.run_ai_tool(t.title(), p, input_req=False)).props('flat color=blue dense').classes('text-xs font-bold px-2')
+                    ui.button(tool, on_click=lambda t=tool, k=tmpl_key: self.run_ai_tool(t.title(), self.config["PROMPT_TEMPLATES"][k], input_req=False)).props('flat color=blue dense').classes('text-xs font-bold px-2').tooltip(ttip)
 
-                ui.button('DAILY', on_click=lambda: self.run_ai_tool('Daily Roadmap', 'Act as a TPM. Review all project notes below. Group activities by project, highlight urgent items and blockers. Provide a concise daily roadmap:\n\n{all_notes}')).props('flat color=blue dense').classes('text-xs font-bold px-2')
+                ui.button('DAILY', on_click=lambda: self.run_ai_tool('Daily Roadmap', self.config["PROMPT_TEMPLATES"]["Daily Roadmap"])).props('flat color=blue dense').classes('text-xs font-bold px-2').tooltip('Generate a cross-project daily roadmap highlighting urgent items')
                 ui.button(icon='settings', on_click=self.open_config_dialog).props('flat color=gray dense').classes('px-2').tooltip('Settings & API Keys')
 
             with ui.row().classes('items-center justify-end gap-2 shrink-0'):
@@ -1161,6 +1183,5 @@ class WebTPM:
         # FOOTER (AI PROMPT BAR & TOGGLE)
         with ui.footer().classes('bg-[#11161f] border-t border-[#21262d] p-2.5 shrink-0'):
             with ui.row().classes('w-full items-center gap-3'):
-                self.ai_toggle = ui.toggle({'local': 'LOCAL (OLLAMA)', 'cloud': 'CLOUD (COPILOT)'}, value='local').bind_value(self, 'ai_mode').props('rounded dense size=sm color=blue')
                 self.cmd_input = ui.input(placeholder='Ask AI anything about the active project notes...').on('keydown.enter', self.submit_prompt).classes('flex-grow text-sm').props('outlined dark dense rounded')
                 ui.button(icon='send', on_click=self.submit_prompt).props('elevated color=blue dense').tooltip('Submit prompt')

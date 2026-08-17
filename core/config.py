@@ -31,6 +31,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "Tech Plan": "cloud",
         "Triage": "cloud",
         "Groom": "cloud"
+    },
+    "PROMPT_TEMPLATES": {
+        "Summary": "Act as a Technical Project Manager. Provide a highly focused 'at-a-glance' summary of this project.\n\n--- SOURCE 1: CURRENT TASKS (Dynamic Progress) ---\n{tasks_portion}\n\n--- SOURCE 2: PROJECT INFO (Static Context) ---\n{project_info}\n\nSTRICT NARRATIVE STRUCTURE:\n1. LEAD (1-2 sentences): Core technical progress and blockers based ONLY on the TASKS.\n2. CLOSE (1 sentence): Project mission based ONLY on the PROJECT INFO.\n3. FORMAT: Return exactly one paragraph of continuous text. No bullets, no headers.\n4. CONSTRAINT: Total length must be EXACTLY 2-3 sentences. Be extremely punchy, technical, and objective.",
+        "Chat": "Project: {project_name}\nNotes Content:\n{notes_content}\nRecent Context:\n{history_context}\n\nUser Question: {prompt_text}",
+        "Executive": "ROI and Business Impact:\n{notes}",
+        "Triage": "Analyze the project notes below. Identify stale tasks, assess blocker severity, and output a structured Project Risk Report. Suggest priority adjustments:\n{all_notes}",
+        "Groom": "Act as an expert TPM. Review ONLY the tasks in the \"TO DO\" section (tasks that are not marked as completed, blocked, or in-progress). Group related TO DO tasks and move all #p1 or critical dependency (#dep) tasks to the top of the list. Output the reorganized list:\n{notes}",
+        "Daily Roadmap": "Act as a TPM. Review all project notes below. Group activities by project, highlight urgent items and blockers. Provide a concise daily roadmap:\n\n{all_notes}",
+        "Refactor Task": "Refactor this task to be more clear, actionable, and formatted correctly. Retain all metadata tags:\n\n{task_text}",
+        "Refactor Notes": "Refactor these project notes for {project}. Maintain all task statuses, tags, and metadata. Improve clarity, group tasks logically, and clean up formatting:\n\n{notes}",
+        "Decompose": "Act as a Technical Project Manager. Decompose this complex task for project '{project_name}' into 3 to 5 clear, actionable subtasks.\n\nParent Task: {task_title}\nContext / Description: {task_desc}\n\nFORMAT RULES:\n1. Return ONLY the subtask items.\n2. You MUST use standard markdown checkboxes for each subtask: '- [ ] Actionable title #p<1|2|3>'\n3. You may include multi-line descriptions or nested sub-bullets under each checkbox to provide more context. Our system supports full markdown blocks!\n4. Do not include conversational text, headers, or explanations.",
+        "Standup": "Act as a Technical Project Manager. Review the project notes for '{project_name}' and produce a crisp, executive daily standup update formatted for Slack/Teams.\n\n--- NOTES ---\n{notes_content}\n\nOUTPUT FORMAT (STRICT):\n### 🚀 Standup: {project_name} ({today_str})\n\n**🟢 Completed / Recent Progress:**\n- Bullet points of completed work based on [x] tasks and their sub-items\n\n**🔵 Focus for Today (In Flight):**\n- Key active tasks, priorities #p1/#p2, and target due dates. Summarize long descriptions.\n\n**🔴 Blockers & Vulnerabilities:**\n- Explicit blockers (#blocked) or dependency risks (#dep)\n\nBe concise, technical, and high-impact."
     }
 }
 
@@ -77,6 +89,18 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
             new_prefs[tool] = val
         config["MODEL_PREFS"] = new_prefs
 
+    # Prompt Templates
+    if "PROMPT_TEMPLATES" not in config or not isinstance(config["PROMPT_TEMPLATES"], dict):
+        config["PROMPT_TEMPLATES"] = DEFAULT_CONFIG["PROMPT_TEMPLATES"].copy()
+    else:
+        new_prompts = {}
+        for tmpl, default_val in DEFAULT_CONFIG["PROMPT_TEMPLATES"].items():
+            val = config["PROMPT_TEMPLATES"].get(tmpl, default_val)
+            if not isinstance(val, str) or not val.strip():
+                val = default_val
+            new_prompts[tmpl] = val
+        config["PROMPT_TEMPLATES"] = new_prompts
+
     return config
 
 def load_config() -> Dict[str, Any]:
@@ -102,6 +126,9 @@ def load_config() -> Dict[str, Any]:
                 if "MODEL_PREFS" in user_cfg and "MODEL_PREFS" in merged:
                     merged["MODEL_PREFS"].update(user_cfg["MODEL_PREFS"])
                     del user_cfg["MODEL_PREFS"]
+                if "PROMPT_TEMPLATES" in user_cfg and "PROMPT_TEMPLATES" in merged:
+                    merged["PROMPT_TEMPLATES"].update(user_cfg["PROMPT_TEMPLATES"])
+                    del user_cfg["PROMPT_TEMPLATES"]
                 merged.update(user_cfg)
         except Exception as e:
             print(f"Error loading user config: {e}", file=sys.stderr)
