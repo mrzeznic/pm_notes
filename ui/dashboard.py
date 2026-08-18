@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import difflib
 import re
 from pathlib import Path
@@ -909,13 +910,53 @@ class WebTPM:
                 return
                 
             # Aggregate data
+            today = datetime.date.today()
             status_counts = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
             prio_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+            deadline_counts = {"overdue": 0, "today": 0, "this_week": 0, "later": 0}
+            section_counts = {}
+            total_age_days = 0
+            aged_tasks_count = 0
+            blocked_tasks = []
+
             for t in tasks:
                 status_counts[t.kanban_status] += 1
                 prio_counts[t.prio] += 1
                 
-            with ui.row().classes('w-full gap-4'):
+                if not t.is_done:
+                    if t.section:
+                        s = t.section.strip('#').strip()
+                        if s:
+                            section_counts[s] = section_counts.get(s, 0) + 1
+                            
+                    if t.blocked:
+                        blocked_tasks.append(t)
+                        
+                    if t.due:
+                        try:
+                            due_date = datetime.datetime.strptime(t.due, "%Y-%m-%d").date()
+                            if due_date < today:
+                                deadline_counts['overdue'] += 1
+                            elif due_date == today:
+                                deadline_counts['today'] += 1
+                            elif (due_date - today).days <= 7:
+                                deadline_counts['this_week'] += 1
+                            else:
+                                deadline_counts['later'] += 1
+                        except ValueError:
+                            pass
+                            
+                    if t.created:
+                        try:
+                            created_date = datetime.datetime.strptime(t.created, "%Y-%m-%d").date()
+                            age = (today - created_date).days
+                            if age >= 0:
+                                total_age_days += age
+                                aged_tasks_count += 1
+                        except ValueError:
+                            pass
+                
+            with ui.row().classes('w-full gap-4 mb-4'):
                 # Project Health Donut Chart
                 with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
                     ui.label('Project Health').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
@@ -967,6 +1008,83 @@ class WebTPM:
                             'barWidth': '40%'
                         }]
                     }).classes('h-64')
+
+            with ui.row().classes('w-full gap-4 mb-4'):
+                # Deadlines Bar Chart
+                with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
+                    ui.label('Upcoming Deadlines').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
+                    ui.echart({
+                        'tooltip': {'trigger': 'axis'},
+                        'xAxis': {
+                            'type': 'category',
+                            'data': ['Overdue', 'Today', 'This Week', 'Later'],
+                            'axisLabel': {'color': '#8b949e'}
+                        },
+                        'yAxis': {'type': 'value', 'splitLine': {'lineStyle': {'color': '#21262d'}}, 'axisLabel': {'color': '#8b949e'}},
+                        'series': [{
+                            'data': [
+                                {'value': deadline_counts['overdue'], 'itemStyle': {'color': '#dc2626'}},
+                                {'value': deadline_counts['today'], 'itemStyle': {'color': '#f97316'}},
+                                {'value': deadline_counts['this_week'], 'itemStyle': {'color': '#3b82f6'}},
+                                {'value': deadline_counts['later'], 'itemStyle': {'color': '#10b981'}}
+                            ],
+                            'type': 'bar',
+                            'barWidth': '40%'
+                        }]
+                    }).classes('h-64')
+                
+                # Section Workload Donut Chart
+                with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow w-[45%]'):
+                    ui.label('Workload by Section').classes('text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase')
+                    if section_counts:
+                        section_data = [{'value': v, 'name': k} for k, v in section_counts.items()]
+                        ui.echart({
+                            'tooltip': {'trigger': 'item'},
+                            'legend': {'type': 'scroll', 'top': '5%', 'left': 'center', 'textStyle': {'color': '#8b949e'}},
+                            'series': [
+                                {
+                                    'name': 'Tasks',
+                                    'type': 'pie',
+                                    'radius': ['40%', '70%'],
+                                    'avoidLabelOverlap': False,
+                                    'itemStyle': {
+                                        'borderRadius': 5,
+                                        'borderColor': '#11161f',
+                                        'borderWidth': 2
+                                    },
+                                    'label': {'show': False},
+                                    'data': section_data
+                                }
+                            ]
+                        }).classes('h-64')
+                    else:
+                        with ui.column().classes('w-full h-64 items-center justify-center text-gray-500'):
+                            ui.label('No sections defined').classes('text-sm')
+
+            with ui.row().classes('w-full gap-4'):
+                # Average Task Age Metric
+                with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 w-64 items-center justify-center'):
+                    ui.label('Average Task Age').classes('text-xs font-bold text-gray-400 mb-4 tracking-wider uppercase text-center')
+                    avg_age = round(total_age_days / aged_tasks_count) if aged_tasks_count > 0 else 0
+                    color = "text-red-400" if avg_age > 30 else ("text-yellow-400" if avg_age > 14 else "text-green-400")
+                    ui.label(f"{avg_age} days").classes(f'text-4xl font-black {color}')
+                    ui.label(f'across {aged_tasks_count} active tasks').classes('text-[10px] text-gray-500 mt-2')
+
+                # Top Blockers List
+                with ui.card().classes('bg-[#11161f] border border-[#21262d] p-4 flex-grow'):
+                    ui.label('Active Blockers').classes('text-xs font-bold text-red-400 mb-2 tracking-wider uppercase')
+                    if blocked_tasks:
+                        with ui.column().classes('w-full gap-2 overflow-y-auto max-h-48 pr-2'):
+                            for bt in blocked_tasks:
+                                with ui.row().classes('w-full items-start gap-2 bg-[#1c2128] p-2 rounded'):
+                                    ui.icon('block', color='red', size='16px').classes('mt-0.5')
+                                    with ui.column().classes('gap-0 flex-grow'):
+                                        ui.label(bt.clean_text).classes('text-xs font-bold text-gray-200 line-clamp-1')
+                                        ui.label(f"Reason: {bt.blocked}").classes('text-[10px] text-red-300 line-clamp-2')
+                    else:
+                        with ui.column().classes('w-full h-full items-center justify-center text-gray-500'):
+                            ui.icon('check_circle', size='24px', color='green').classes('opacity-50 mb-1')
+                            ui.label('No blocked tasks!').classes('text-xs')
 
     def render_raw_view(self):
         p = self.get_active_project()
