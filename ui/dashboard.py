@@ -850,11 +850,7 @@ class WebTPM:
             return
             
         gantt_lines = ["%%{init: {'theme': 'dark', 'themeVariables': {'textColor': '#e5e7eb', 'primaryTextColor': '#e5e7eb', 'titleColor': '#ffffff'}}}%%", "gantt", "    title Project Timeline", "    dateFormat YYYY-MM-DD", "    axisFormat %m/%d"]
-        
-        # Define classes for colors
-        colors = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0', '#00838f', '#00695c', '#2e7d32', '#ef6c00', '#d84315']
-        for i, color in enumerate(colors):
-            gantt_lines.append(f"    classDef proj{i} fill:{color},stroke:{color},color:#ffffff")
+
             
         
         # Group tasks by project
@@ -873,25 +869,35 @@ class WebTPM:
             ui.label('No tasks with a due date (@YYYY-MM-DD) found.').classes('text-gray-500 italic p-4')
             return
             
+        css_rules = []
         for proj_name, p_tasks in tasks_by_proj.items():
             gantt_lines.append(f"    section {proj_name}")
             
-            # Generate a consistent index for this project
+            # Generate a consistent hex color for this project
+            colors = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0', '#00838f', '#00695c', '#2e7d32', '#ef6c00', '#d84315']
             idx = sum(ord(c) for c in proj_name) % len(colors)
-            proj_class = f"proj{idx}"
+            hex_color = colors[idx]
             
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
-                tags_str = f"{proj_class}, {status_str}"
                 
                 clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
                 if t.created and t.due:
-                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.created}, {t.due}")
+                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
                 else:
-                    gantt_lines.append(f"    {clean_name} : {tags_str}id_{t.id}, {t.due}, 1d")
+                    gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
+                    
+                # Inject robust CSS matching both possible DOM structures (rect directly or rect inside g)
+                css_rules.append(f"rect[id*='id_{t.id}'] {{ fill: {hex_color} !important; stroke: {hex_color} !important; opacity: 1 !important; }}")
+                css_rules.append(f"g[id*='id_{t.id}'] rect {{ fill: {hex_color} !important; stroke: {hex_color} !important; opacity: 1 !important; }}")
+                
+                css_rules.append(f"rect[id*='id_{t.id}'] + text, rect[id*='id_{t.id}'] ~ text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
+                css_rules.append(f"g[id*='id_{t.id}'] text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
             
         mermaid_code = "\n".join(gantt_lines)
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d]'):
+            if css_rules:
+                ui.html(f"<style>{' '.join(css_rules)}</style>")
             ui.mermaid(mermaid_code).classes('w-full')
 
     def render_analytics_view(self, tasks: List[Task]):

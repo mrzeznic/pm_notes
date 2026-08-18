@@ -1,0 +1,24 @@
+{
+  "name": "pm_notes",
+  "version": "1.0.0",
+  "description": "[![Automated Tests](https://github.com/mrzeznic/pm_notes/actions/workflows/tests.yml/badge.svg)](https://github.com/mrzeznic/pm_notes/actions)",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrzeznic/pm_notes.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mrzeznic/pm_notes/issues"
+  },
+  "homepage": "https://github.com/mrzeznic/pm_notes#readme"
+}
