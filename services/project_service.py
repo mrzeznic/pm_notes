@@ -88,7 +88,7 @@ class ProjectService:
 
         notes_path = cls.ensure_project_notes(proj_dir, safe_name, mission, tech_stack, lead)
         content = notes_path.read_text(encoding='utf-8', errors='ignore')
-        todos, blockers, urgent, prog = MarkdownParser.calculate_stats(content)
+        todos, in_progress, blockers, urgent, prog = MarkdownParser.calculate_stats(content)
 
         AILogger.log(f"Created new project '{safe_name}'", "success")
         return Project(
@@ -96,6 +96,7 @@ class ProjectService:
             dir=proj_dir,
             path=notes_path,
             todos=todos,
+            in_progress=in_progress,
             blockers=blockers,
             urgent=urgent,
             progress=prog,
@@ -120,11 +121,11 @@ class ProjectService:
                 if not notes_path.exists() and not is_archived:
                     notes_path = cls.ensure_project_notes(d, d.name)
 
-                todos, blockers, urgent, prog = 0, 0, 0, 0.0
+                todos, in_progress, blockers, urgent, prog = 0, 0, 0, 0, 0.0
                 if notes_path.exists():
                     try:
                         content = notes_path.read_text(encoding='utf-8', errors='ignore')
-                        todos, blockers, urgent, prog = MarkdownParser.calculate_stats(content)
+                        todos, in_progress, blockers, urgent, prog = MarkdownParser.calculate_stats(content)
                     except Exception:
                         pass
 
@@ -133,6 +134,7 @@ class ProjectService:
                     dir=d,
                     path=notes_path,
                     todos=todos,
+                    in_progress=in_progress,
                     blockers=blockers,
                     urgent=urgent,
                     progress=prog,

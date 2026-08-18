@@ -650,7 +650,7 @@ class WebTPM:
             for i, pr in enumerate(all_p):
                 act = (i == self.active_idx) and not self.global_search
                 cls = 'sidebar-active shadow-md' if act else 'hover:bg-[#161b22] text-gray-400'
-                wip_alert = (pr.todos > wip_limit_val) and not pr.is_archived
+                wip_alert = (pr.in_progress > wip_limit_val) and not pr.is_archived
 
                 with ui.row().classes(f'w-full items-center p-2 rounded-lg cursor-pointer {cls} no-wrap overflow-hidden justify-between').on('click', lambda idx=i: self.switch_project_async(idx)):
                     with ui.column().classes('gap-0 flex-grow overflow-hidden'):

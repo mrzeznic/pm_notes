@@ -123,26 +123,27 @@ class MarkdownParser:
         return tasks
 
     @staticmethod
-    def calculate_stats(content: str) -> Tuple[int, int, int, float]:
-        """Calculates accurate (todos, blockers, urgent, progress) metrics from parsed active tasks."""
+    def calculate_stats(content: str) -> Tuple[int, int, int, int, float]:
+        """Calculates accurate (todos, in_progress, blockers, urgent, progress) metrics from parsed active tasks."""
         if not content:
-            return 0, 0, 0, 0.0
+            return 0, 0, 0, 0, 0.0
 
         tasks = MarkdownParser.parse_tasks(content, show_archived=False)
         total = len(tasks)
         if total == 0:
-            return 0, 0, 0, 0.0
+            return 0, 0, 0, 0, 0.0
 
         done = len([t for t in tasks if t.is_done])
         # Open work items: uncompleted and not blocked
         todos = len([t for t in tasks if not t.is_done and not t.blocked])
+        in_progress = len([t for t in tasks if not t.is_done and t.kanban_status == "in_progress"])
         # Blockers only count open uncompleted blocked tasks
         blockers = len([t for t in tasks if not t.is_done and t.blocked])
         # Urgent only counts open uncompleted #p1 tasks
         urgent = len([t for t in tasks if not t.is_done and t.prio == 1])
         prog = (done / total * 100.0) if total > 0 else 0.0
 
-        return todos, blockers, urgent, prog
+        return todos, in_progress, blockers, urgent, prog
 
     @staticmethod
     def extract_summary(content: str) -> Optional[str]:
