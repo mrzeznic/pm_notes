@@ -874,7 +874,8 @@ class WebTPM:
             ui.label('No tasks with a due date (@YYYY-MM-DD) found.').classes('text-gray-500 italic p-4')
             return
             
-        css_rules = []
+        import json
+        task_color_map = {}
         for proj_name, p_tasks in tasks_by_proj.items():
             gantt_lines.append(f"    section {proj_name}")
             
@@ -885,29 +886,58 @@ class WebTPM:
             
             for t in p_tasks:
                 status_str = "done, " if t.is_done else "active, " if t.kanban_status == "in_progress" else ""
-                
                 clean_name = t.clean_text.replace('"', '').replace(':', '').replace(',', '').replace('#', '').replace('^', '')
+                task_color_map[clean_name] = hex_color
+                
                 if t.created and t.due:
                     gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.created}, {t.due}")
                 else:
                     gantt_lines.append(f"    {clean_name} : {status_str}id_{t.id}, {t.due}, 1d")
-                    
-                # Inject robust CSS matching both possible DOM structures (rect directly or rect inside g)
-                css_rules.append(f"rect[id*='id_{t.id}'] {{ fill: {hex_color} !important; stroke: {hex_color} !important; opacity: 1 !important; }}")
-                css_rules.append(f"g[id*='id_{t.id}'] rect {{ fill: {hex_color} !important; stroke: {hex_color} !important; opacity: 1 !important; }}")
-                
-                css_rules.append(f"rect[id*='id_{t.id}'] + text, rect[id*='id_{t.id}'] ~ text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
-                css_rules.append(f"g[id*='id_{t.id}'] text {{ fill: #ffffff !important; font-weight: bold !important; text-shadow: 0px 0px 2px rgba(0,0,0,0.8) !important; }}")
             
         mermaid_code = "\n".join(gantt_lines)
         total_tasks = sum(len(t) for t in tasks_by_proj.values())
         min_height = max(300, total_tasks * 35 + 100 + len(tasks_by_proj) * 20)
         
+        js_injector = f"""
+        (function() {{
+            const colorMap = {json.dumps(task_color_map)};
+            let attempts = 0;
+            const applyColors = setInterval(() => {{
+                let texts = document.querySelectorAll('text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft, text.task-text');
+                if (texts.length > 0 || attempts > 25) {{
+                    if (texts.length > 0) {{
+                        texts.forEach(txt => {{
+                            let name = txt.textContent.trim();
+                            if (colorMap[name]) {{
+                                let rect = null;
+                                if (txt.parentElement && txt.parentElement.tagName === 'g') {{
+                                    rect = txt.parentElement.querySelector('rect');
+                                }}
+                                if (!rect && txt.previousElementSibling && txt.previousElementSibling.tagName === 'rect') {{
+                                    rect = txt.previousElementSibling;
+                                }}
+                                if (rect) {{
+                                    rect.style.setProperty('fill', colorMap[name], 'important');
+                                    rect.style.setProperty('stroke', colorMap[name], 'important');
+                                    rect.style.setProperty('opacity', '1', 'important');
+                                }}
+                                txt.style.setProperty('fill', '#ffffff', 'important');
+                                txt.style.setProperty('font-weight', 'bold', 'important');
+                                txt.style.setProperty('text-shadow', '0px 0px 2px rgba(0,0,0,0.8)', 'important');
+                            }}
+                        }});
+                        clearInterval(applyColors);
+                    }}
+                }}
+                attempts++;
+            }}, 200);
+        }})();
+        """
+        
         with ui.card().classes('w-full bg-[#090d13] border border-[#21262d] overflow-x-auto').style(f'min-height: {min_height}px;'):
-            if css_rules:
-                ui.html(f"<style>{' '.join(css_rules)}</style>")
             ui.mermaid(mermaid_code).classes('w-full')
-
+            ui.timer(0.1, lambda: ui.run_javascript(js_injector), once=True)
+            
     def render_analytics_view(self, tasks: List[Task]):
         with ui.element('div').classes('list-area col w-full p-4 overflow-y-auto'):
             if not tasks:
